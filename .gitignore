@@ -1,0 +1,14 @@
+# Build output — holds the transcribe.cpp/ggml CMake trees too (~18 GB).
+/target
+
+# Rust backup files.
+**/*.rs.bk
+
+# Editor/OS noise.
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Cargo.lock is tracked on purpose: binary crate, pinned dependency graph.
+

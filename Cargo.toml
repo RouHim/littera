@@ -1,0 +1,69 @@
+[package]
+name = "lingua"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[dependencies]
+# In-process ASR engine (statically linked transcribe.cpp, Vulkan backend enabled).
+transcribe-cpp = { version = "0.4.0", default-features = false, features = ["vulkan"] }
+# GUI toolkit for the onboarding/settings windows. Defaults are off only to drop
+# two dead weights: `linux-theme-detection` (pulls the whole smol/async-io stack
+# for a theme the UI hardcodes to Tokyo Night) and `thread-pool` (iced's own
+# thread pool, unused because the `tokio` backend outranks it). The renderer
+# pair is deliberate: `iced_renderer` then builds `Renderer::All`, which prefers
+# wgpu at runtime and falls back to the CPU (tiny-skia) on machines without a
+# usable adapter.
+iced = { version = "0.14.0", default-features = false, features = [
+    "crisp",
+    "web-colors",
+    "wgpu",
+    "tiny-skia",
+    "tokio",
+    "wayland",
+    "x11",
+] }
+tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
+futures-util = "0.3"
+# Desktop portals (global shortcut binding).
+ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts", "raw_handle"] }
+# Microphone capture + resampling to 16 kHz mono.
+cpal = "0.18"
+rubato = "5.0"
+# Listen-only hotkey device listener + /dev/uinput keystroke injection.
+evdev = "0.13"
+# StatusNotifierItem tray icon.
+ksni = "0.3"
+# Wayland clipboard ownership is implemented in-process with wayland-client
+# (smithay-clipboard 0.7 only sets a selection while its own client has keyboard
+# focus, which a background dictation app never has).
+# Layer-shell overlay backend.
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+smithay-client-toolkit = "0.21"
+calloop = "0.14"
+# X11 overlay backend (GNOME path).
+x11rb = { version = "0.14", features = ["allow-unsafe-code", "shm", "shape", "randr"] }
+# Overlay rendering (raster + text shaping), shared by both overlay backends.
+tiny-skia = "0.12"
+cosmic-text = "0.19"
+# Model download: HTTPS over rustls with bundled roots and streaming bodies.
+# Blocking, so the transfer runs on the blocking pool instead of dragging a
+# hyper/tower stack through the runtime.
+ureq = { version = "3.4", default-features = false, features = ["rustls"] }
+sha2 = "0.11"
+nix = { version = "0.31", features = ["fs"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1.1"
+dirs = "7"
+# Icon decoding for the embedded PNG (tray pixmap + window icon).
+png = "0.18"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[profile.release]
+lto = "thin"
