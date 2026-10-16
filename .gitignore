@@ -9,6 +9,7 @@
 *.swo
 *~
 .DS_Store
+.idea/
 
 # Cargo.lock is tracked on purpose: binary crate, pinned dependency graph.
 

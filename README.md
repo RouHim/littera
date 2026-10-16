@@ -26,7 +26,7 @@ and is not ported to macOS, Windows, BSD, or to an X11 session.
   `wl_data_device`; the hotkey picks the `GlobalShortcuts` portal, else the read-only
   evdev listener; auto-paste needs `/dev/uinput`, else the transcript is copied only.
   Every gap degrades to a documented fallback and is named in
-  `lingua --diagnostics` and in the app's *Diagnostics* view.
+  `lingua --diagnostics` and in the app's startup problem notice.
 - **No other platform glue**: no GTK/Qt shell (the GUI is iced), no
   `ydotool`/`xdotool`/`wtype`, no Python, no separately installed speech runtime, no
   cloud.
@@ -34,9 +34,9 @@ and is not ported to macOS, Windows, BSD, or to an X11 session.
 ## Runtime dependencies
 
 What the built binary needs on the machine. Everything below is checked by
-`lingua --diagnostics` (hotkey access, paste permission, GPU backend, overlay backend)
-and named again in the app's *Diagnostics* section (effective backend/device, clipboard
-mechanism, microphone format, overlay backend).
+`lingua --diagnostics` (hotkey access, paste permission, GPU backend, overlay backend);
+the app opens a **problem notice** by itself whenever one of those checks fails — also
+when it otherwise starts without any window.
 
 ### Libraries the binary links directly
 
@@ -83,6 +83,7 @@ code paths above only need the six libraries listed.
 | logind `uaccess` ACL on `/dev/input/event*`, or membership in the `input` group | reading the hotkey | the system check prints `sudo usermod -aG input $USER` + re-login |
 | logind `uaccess` ACL on `/dev/uinput` | synthesizing the paste chord | clipboard-only mode; the overlay names the blocked path (FR-013) |
 | XWayland | GNOME overlay and the X11 clipboard bridge | no overlay on GNOME, no X11 clipboard fallback |
+| `xdg-open` (`xdg-utils`) | opening the models folder from the settings window | the click reports the failure (FR-019); dictation is unaffected |
 | `ca-certificates` (system trust store) | HTTPS model download (rustls with the platform verifier) | the download cannot be verified |
 | a compositor implementing `zwlr_data_control_v1`/`ext_data_control_v1`, or XWayland | owning the clipboard selection from the background | only the core `wl_data_device` path remains, which needs keyboard focus — logged as a warning |
 
@@ -137,10 +138,15 @@ cargo build --release
 ./target/release/lingua          # first run: onboarding (model, language, key, check)
 ```
 
-The first dictation downloads the selected model on demand (751 MB for the default
-Q8_0 variant) into `~/.local/share/lingua/models`, resumable and verified against the
-published SHA-256 before it is loaded. The download can be cancelled in the model step
-and resumed later.
+The model section lists every streaming ASR variant of the bundled `transcribe.cpp`
+catalog snapshot (8 variants, 23 quantized artifacts) with its published accuracy and
+speed ratings, a quant selector, filters and sorting; the exact values, the reference
+machine and a file's SHA-256 are in each card's expandable detail. One download runs at
+a time: it is resumable and verified against the pinned SHA-256 before the artifact is
+loaded, it can be cancelled (the partial file is kept) and retried, and the finished
+model becomes active immediately. The default is Nemotron 3.5 ASR Streaming 0.6B in
+Q8_0 (751 MB) — multilingual, 32 locales incl. German; the list also offers the
+English-only variants (down to 50 MB) and Voxtral Mini 4B Realtime (4.73 GB).
 
 `lingua` runs as a single instance: launching it again forwards "open settings" to the
 running process and exits. A tray icon (StatusNotifierItem) shows the dictation state
@@ -156,7 +162,7 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 
 - `--diagnostics` prints the four system checks (`hotkey access`, `paste permission`,
   `GPU backend`, `overlay backend`) with the remediation command for anything failing,
-  then exits 0.
+  plus the effective model, language and backend preference (FR-022), then exits 0.
 - `--audio-file` runs the production pipeline (chunking → engine → clipboard +
   insertion) on a file instead of the microphone, which makes streaming behaviour
   measurable without a human: `--print-transcript` prints the final text (plus
@@ -191,9 +197,23 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   `wl_data_device` with a logged warning. `copy_text` waits for the compositor's
   acknowledgement before the paste chord is synthesized, so a stale clipboard can never
   be pasted. (`smithay-clipboard` was not usable here: it only sets a selection while its
-  own client holds keyboard focus. The diagnostics view names the active mechanism.)
-- Settings are stored in `~/.config/lingua/config.toml` and apply to the next
-  dictation without a restart.
+  own client holds keyboard focus. The settings window names the active mechanism.)
+- Failed capability checks (hotkey access, paste permission, GPU backend, overlay)
+  open a **problem notice** window at startup — the daemon itself starts without any
+  window — listing each failure with its exact fix and a *Re-check* button; a passing
+  re-check closes the notice. A Vulkan→CPU fallback is not a failure: it shows as an
+  overlay notice and keeps dictation working.
+- Settings are stored in `~/.config/lingua/config.toml`; every change in the settings
+  window applies immediately (autosave — there is no Save button) and persists without a
+  restart. Selecting a model never blocks on the language: a model that cannot serve
+  the configured language stays selectable, warns on its card, and runs without a
+  language hint (the engine's hint spelling follows what the loaded GGUF advertises —
+  `de-DE` for Nemotron 3.5, bare `de` for Voxtral). A change the app cannot apply (a
+  failed config write) keeps the previous value and says why right there in that
+  section. The
+  model section names the compute backend the configured model runs on — the engine's
+  report once a model is loaded (`Vulkan — <device>`), the boot-time device probe
+  before that, marked `(expected)`; a CPU fallback keeps its reason on screen (FR-005).
 - The engine reads the language tag the model emits per segment (`<en-US>`, with
   `keep_special_tags` on) and strips it before anything user-visible sees the text, so
   FR-007 still holds: neither the overlay, nor the clipboard, nor the synthesized

@@ -23,12 +23,13 @@ use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::anyhow;
 use transcribe_cpp::{
-    Backend, CommitPolicy, Model, ModelOptions, ParakeetStreamOptions, RunOptions, StreamExtension,
-    StreamOptions,
+    Backend, CommitPolicy, ExtSlot, Model, ModelOptions, ParakeetStreamOptions, RunOptions,
+    StreamExtension, StreamOptions,
 };
 
 use crate::config::{BackendPreference, Language};
-use crate::models::{self, ModelEntry};
+use crate::model_catalog::{self, Artifact, Selection};
+use crate::models;
 use crate::stream_lease::StreamLease;
 
 /// At most one `Partial` per window, so the overlay redraw rate stays bounded.
@@ -116,20 +117,21 @@ impl Drop for Engine {
 
 /// Spawn the single engine worker thread.
 ///
-/// `entry` is the catalog entry of `path` (its size and SHA-256 drive the
-/// pre-flight check), `pref` is the backend preference used for the first
-/// load, and `events` receives every [`EngineEvent`]. The model is loaded on
-/// the first [`EngineCmd::Start`] or [`EngineCmd::LoadModel`], never at spawn:
-/// a missing or incomplete model file must not produce an error at boot.
+/// `selection` is the snapshot variant/artifact of `path` (its size and SHA-256
+/// drive the pre-flight check, its advertised languages the hint spelling),
+/// `pref` is the backend preference used for the first load, and `events`
+/// receives every [`EngineEvent`]. The model is loaded on the first
+/// [`EngineCmd::Start`] or [`EngineCmd::LoadModel`], never at spawn: a missing
+/// or incomplete model file must not produce an error at boot.
 pub fn spawn(
-    entry: &'static ModelEntry,
+    selection: Selection,
     path: PathBuf,
     pref: BackendPreference,
     events: Sender<EngineEvent>,
 ) -> Engine {
     let (tx, rx) = mpsc::channel();
     let worker = Worker {
-        entry,
+        selection,
         path,
         pref,
         events,
@@ -177,7 +179,8 @@ pub fn init_backends() -> anyhow::Result<()> {
 /// Enumerate the registered compute devices without loading a model.
 ///
 /// Returns the engine info the user should expect for `pref`, plus the reason
-/// nothing usable was found. Used by the diagnostics surface (FR-014, FR-022).
+/// nothing usable was found. Used by the app's capability check and
+/// `lingua --diagnostics` (FR-014, FR-022).
 pub fn probe_devices(pref: BackendPreference) -> (Option<EngineInfo>, Option<String>) {
     if let Err(err) = init_backends() {
         return (None, Some(err.to_string()));
@@ -235,15 +238,30 @@ pub fn probe_devices(pref: BackendPreference) -> (Option<EngineInfo>, Option<Str
 
 /// `RunOptions` for one dictation: the language hint (FR-007).
 ///
+/// The hint must be spelled exactly as the loaded GGUF advertises the language,
+/// or the C API refuses the run — the variants disagree (`en-US` for Nemotron
+/// 3.5, bare `en` for Voxtral and the English-only models), so
+/// [`model_catalog::language_hint`] picks the spelling and `None` means "run
+/// without a hint". A configured language the model does not serve is a
+/// non-blocking warning, never an error (FR-011).
+///
 /// `keep_special_tags` is on although FR-007 forbids tags in the inserted text:
 /// the tags are how the *detected* language reaches the session record (the
 /// pinned Nemotron 3.5 tags every committed segment, e.g. `<en-US>`, and the
 /// library drops them before we could read them). [`strip_language_tags`]
 /// removes them again, so nothing tagged ever reaches the overlay, the
 /// clipboard or the keyboard path.
-fn run_options_for(language: Language) -> RunOptions {
+fn run_options_for(language: Language, selection: Selection) -> RunOptions {
+    let hint = model_catalog::language_hint(selection.variant, language);
+    if language != Language::Auto && hint.is_none() {
+        tracing::warn!(
+            variant = selection.variant.id,
+            language = language.label(),
+            "the model does not advertise this language; running without a language hint"
+        );
+    }
     RunOptions {
-        language: language.api_code().map(str::to_owned),
+        language: hint.map(str::to_owned),
         keep_special_tags: true,
         ..RunOptions::default()
     }
@@ -344,14 +362,32 @@ fn backend_for(pref: BackendPreference) -> (Backend, bool) {
 /// Stream parameters: commit the prefix as soon as the stable-prefix
 /// implementation agrees once, with the lowest lookahead the model offers, so
 /// partials grow immediately (SC-002).
-fn stream_options() -> StreamOptions {
+fn stream_options(family: Option<StreamExtension>) -> StreamOptions {
     StreamOptions {
         commit_policy: CommitPolicy::Auto,
         stable_prefix_agreement_n: 1,
-        family: Some(StreamExtension::ParakeetStream(ParakeetStreamOptions {
-            att_context_right: Some(0),
-        })),
+        family,
     }
+}
+
+/// The lowest-lookahead stream extension the loaded model accepts (SC-002).
+///
+/// Whether a stream extension is accepted is a property of the *model variant*,
+/// not of the family: the cache-aware Parakeet variants take `ParakeetStream`
+/// (0 frames of lookahead), `parakeet-unified-en-0.6b` takes the buffered tuple
+/// instead, and Moonshine Streaming and Voxtral Mini take neither.
+/// `transcribe_stream_begin` refuses an unaccepted kind with
+/// `TRANSCRIBE_ERR_INVALID_ARG`, so the kind is probed at runtime — an
+/// assumption here would break every non-cache-aware model in the snapshot.
+fn stream_extension(model: &Model) -> Option<StreamExtension> {
+    let cache_aware = model.accepts_ext(
+        ExtSlot::Stream,
+        transcribe_cpp::sys::TRANSCRIBE_EXT_KIND_PARAKEET_STREAM,
+    );
+
+    cache_aware.then_some(StreamExtension::ParakeetStream(ParakeetStreamOptions {
+        att_context_right: Some(0),
+    }))
 }
 
 /// Whether the throttle window since the last `Partial` has elapsed.
@@ -401,20 +437,18 @@ fn model_corrupt_message(path: &Path) -> String {
     )
 }
 
-/// The catalog entry for a model file `path`, matched by file name.
+/// The snapshot selection for a model file `path`, matched by file name.
 ///
-/// The worker is spawned with the entry of the configured model, but settings
-/// can switch models at runtime (FR-002), so every load re-resolves the entry
+/// The worker is spawned with the selection of the configured model, but settings
+/// can switch models at runtime (FR-002), so every load re-resolves the selection
 /// from the file it is about to load instead of trusting the spawn-time one.
-fn entry_for_path(path: &Path) -> Option<&'static ModelEntry> {
+fn selection_for_path(path: &Path) -> Option<Selection> {
     let file_name = path.file_name().and_then(OsStr::to_str)?;
-    models::CATALOG
-        .iter()
-        .find(|candidate| candidate.file_name == file_name)
+    model_catalog::selection_for_file_name(file_name)
 }
 
 /// `(length, mtime)` of a model file that exists and has the expected size.
-fn model_file_stamp(entry: &ModelEntry, path: &Path) -> Result<(u64, Option<SystemTime>), String> {
+fn model_file_stamp(artifact: &Artifact, path: &Path) -> Result<(u64, Option<SystemTime>), String> {
     let metadata = match fs::metadata(path) {
         Ok(metadata) => metadata,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -428,7 +462,7 @@ fn model_file_stamp(entry: &ModelEntry, path: &Path) -> Result<(u64, Option<Syst
         }
     };
     let len = metadata.len();
-    if len != entry.size_bytes {
+    if len != artifact.size_bytes {
         return Err(model_corrupt_message(path));
     }
     Ok((len, metadata.modified().ok()))
@@ -479,8 +513,28 @@ struct ActiveJob {
 
 impl ActiveJob {
     /// Open a session and begin its stream.
-    fn open(model: &Model, language: Language) -> Result<Self, String> {
-        let lease = StreamLease::open(model, &run_options_for(language), &stream_options())?;
+    fn open(model: &Model, language: Language, selection: Selection) -> Result<Self, String> {
+        let options = run_options_for(language, selection);
+        // The lookahead extension is a per-variant capability. A variant that
+        // accepts the kind but not the requested lookahead (the menu values are
+        // per checkpoint) falls back to its own default instead of losing the
+        // dictation.
+        let lease = match stream_extension(model) {
+            Some(family) => {
+                match StreamLease::open(model, &options, &stream_options(Some(family))) {
+                    Ok(lease) => lease,
+                    Err(error) => {
+                        tracing::warn!(
+                            error,
+                            variant = model.variant(),
+                            "the model refused the low-lookahead stream extension; using its default"
+                        );
+                        StreamLease::open(model, &options, &stream_options(None))?
+                    }
+                }
+            }
+            None => StreamLease::open(model, &options, &stream_options(None))?,
+        };
         Ok(Self {
             language,
             lease,
@@ -521,7 +575,7 @@ impl ActiveJob {
 
 /// The worker thread state.
 struct Worker {
-    entry: &'static ModelEntry,
+    selection: Selection,
     path: PathBuf,
     pref: BackendPreference,
     events: Sender<EngineEvent>,
@@ -585,16 +639,16 @@ impl Worker {
     /// The `(length, mtime)` stamp only short-circuits the digest when the file
     /// has an mtime: a file without one looks identical to a same-length
     /// tampered artifact, so its digest is re-checked every time (FR-003). A
-    /// passed check means the file is byte-identical to the catalog entry, so
-    /// the loaded model never has to be reloaded.
+    /// passed check means the file is byte-identical to the snapshot artifact,
+    /// so the loaded model never has to be reloaded.
     fn preflight(&mut self) -> Result<(), String> {
-        let stamp = model_file_stamp(self.entry, &self.path)?;
+        let stamp = model_file_stamp(self.selection.artifact, &self.path)?;
         if stamp.1.is_some() && self.verified == Some(stamp) {
             return Ok(());
         }
         // No cancel flag: this runs once per artifact inside the worker, and the
         // `(length, mtime)` stamp short-circuits every later dictation.
-        match models::verify_matches_entry(self.entry, &self.path, None)
+        match models::verify_matches_entry(self.selection.artifact, &self.path, None)
             .map_err(|err| format!("cannot verify model file {}: {err}", self.path.display()))?
         {
             models::Verify::Verified => {}
@@ -610,11 +664,11 @@ impl Worker {
     }
 
     fn handle_load_model(&mut self, path: PathBuf, pref: BackendPreference) {
-        // The catalog entry supplies the expected size and SHA-256, and the
-        // entry captured at `spawn` is the *configured* model — settings can
-        // switch models at runtime (FR-002, Scenario 3.4), so the entry is
+        // The snapshot artifact supplies the expected size and SHA-256, and the
+        // selection captured at `spawn` is the *configured* model — settings can
+        // switch models at runtime (FR-002, Scenario 3.4), so the selection is
         // re-resolved from the file name before any state changes.
-        let Some(entry) = entry_for_path(&path) else {
+        let Some(selection) = selection_for_path(&path) else {
             self.fail(format!(
                 "unknown model file {} — choose one of the models listed in settings",
                 path.display()
@@ -626,7 +680,7 @@ impl Worker {
             backend = pref.label(),
             "loading model"
         );
-        self.entry = entry;
+        self.selection = selection;
         self.path = path;
         self.pref = pref;
         self.verified = None;
@@ -724,7 +778,7 @@ impl Worker {
             return;
         }
         match self.model.as_ref() {
-            Some(model) => match ActiveJob::open(model, language) {
+            Some(model) => match ActiveJob::open(model, language, self.selection) {
                 Ok(job) => {
                     tracing::info!(language = language.label(), "dictation started");
                     self.active = Some(job);
@@ -844,7 +898,7 @@ impl Worker {
             "transcription failed: no model is loaded — open settings to choose and download a model"
                 .to_owned()
         })?;
-        let mut active = ActiveJob::open(model, job.language)?;
+        let mut active = ActiveJob::open(model, job.language, self.selection)?;
         let partial = if job.buffered.is_empty() {
             None
         } else {
@@ -864,20 +918,52 @@ mod tests {
     use std::sync::mpsc::RecvTimeoutError;
 
     #[test]
-    fn run_options_carry_the_hint_and_ask_for_the_language_tags() {
-        assert_eq!(run_options_for(Language::Auto).language, None);
+    fn run_options_carry_the_variant_spelling_and_ask_for_the_language_tags() {
+        let selection = |id: &str| model_catalog::artifact(id).expect("offered");
+
+        // Nemotron 3.5 advertises locale codes, so the hint is the locale.
+        let nemotron = selection("nemotron-3.5-asr-streaming-0.6b-Q8_0");
+        assert_eq!(run_options_for(Language::Auto, nemotron).language, None);
         assert_eq!(
-            run_options_for(Language::EnUs).language,
+            run_options_for(Language::EnUs, nemotron).language,
             Some("en-US".to_owned())
         );
         assert_eq!(
-            run_options_for(Language::DeDe).language,
+            run_options_for(Language::DeDe, nemotron).language,
             Some("de-DE".to_owned())
         );
-        // The tags stay on: they carry the detected language, and
-        // `strip_language_tags` removes them before anything user-visible.
-        for language in Language::ALL {
-            assert!(run_options_for(language).keep_special_tags);
+
+        // Voxtral and the English-only models advertise bare codes; a locale
+        // hint would be refused by the C API.
+        let voxtral = selection("voxtral-mini-4b-realtime-2602-Q8_0");
+        assert_eq!(
+            run_options_for(Language::DeDe, voxtral).language,
+            Some("de".to_owned())
+        );
+        let moonshine = selection("moonshine-streaming-tiny-Q8_0");
+        assert_eq!(
+            run_options_for(Language::EnUs, moonshine).language,
+            Some("en".to_owned())
+        );
+        // A language the model does not serve runs without a hint (FR-011)
+        // instead of failing the run.
+        assert_eq!(run_options_for(Language::DeDe, moonshine).language, None);
+
+        // The tags stay on for every combination: they carry the detected
+        // language, and `strip_language_tags` removes them before anything
+        // user-visible.
+        for selection in model_catalog::artifacts() {
+            for language in Language::ALL {
+                let options = run_options_for(language, selection);
+                assert!(options.keep_special_tags, "{}", selection.artifact.id);
+                assert!(
+                    options
+                        .language
+                        .is_none_or(|hint| selection.variant.languages.contains(&hint.as_str())),
+                    "{} must only be hinted a spelling it advertises",
+                    selection.artifact.id
+                );
+            }
         }
     }
 
@@ -970,12 +1056,22 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_commit_early_without_lookahead() {
-        let options = stream_options();
-        assert_eq!(options.commit_policy, CommitPolicy::Auto);
-        assert_eq!(options.stable_prefix_agreement_n, 1);
+    fn stream_options_commit_early_and_carry_the_requested_lookahead() {
+        // No extension: the model's own family default applies.
+        let plain = stream_options(None);
+        assert_eq!(plain.commit_policy, CommitPolicy::Auto);
+        assert_eq!(plain.stable_prefix_agreement_n, 1);
+        assert_eq!(plain.family, None);
+
+        let cache_aware = stream_options(Some(StreamExtension::ParakeetStream(
+            ParakeetStreamOptions {
+                att_context_right: Some(0),
+            },
+        )));
+        assert_eq!(cache_aware.commit_policy, CommitPolicy::Auto);
+        assert_eq!(cache_aware.stable_prefix_agreement_n, 1);
         assert_eq!(
-            options.family,
+            cache_aware.family,
             Some(StreamExtension::ParakeetStream(ParakeetStreamOptions {
                 att_context_right: Some(0)
             }))
@@ -1005,20 +1101,20 @@ mod tests {
 
     #[test]
     fn every_catalog_file_resolves_to_its_own_entry() {
-        // Model switching (settings, FR-002) re-resolves the entry from the file
-        // name; a stale spawn-time entry would reject every other model with a
-        // bogus checksum failure.
-        for entry in models::CATALOG.iter() {
-            let path = PathBuf::from("/models").join(entry.file_name);
+        // Model switching (settings, FR-002) re-resolves the selection from the
+        // file name; a stale spawn-time selection would reject every other model
+        // with a bogus checksum failure.
+        for selection in model_catalog::artifacts() {
+            let path = PathBuf::from("/models").join(selection.artifact.file_name);
             assert_eq!(
-                entry_for_path(&path).map(|found| found.id),
-                Some(entry.id),
-                "{} must resolve to its own catalog entry",
-                entry.file_name
+                selection_for_path(&path),
+                Some(selection),
+                "{} must resolve to its own artifact",
+                selection.artifact.file_name
             );
         }
-        assert!(entry_for_path(Path::new("/models/not-a-lingua-model.gguf")).is_none());
-        assert!(entry_for_path(Path::new("/models")).is_none());
+        assert!(selection_for_path(Path::new("/models/not-a-lingua-model.gguf")).is_none());
+        assert!(selection_for_path(Path::new("/models")).is_none());
     }
 
     #[test]
@@ -1038,7 +1134,7 @@ mod tests {
     fn queued_audio_is_buffered_verbatim() {
         let (tx, _rx) = mpsc::channel();
         let mut worker = Worker {
-            entry: models::default_entry(),
+            selection: model_catalog::default_selection(),
             path: PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
             pref: BackendPreference::Auto,
             events: tx,
@@ -1067,10 +1163,10 @@ mod tests {
 
     #[test]
     fn audio_and_stop_are_answered_without_a_model() {
-        let entry = models::default_entry();
+        let selection = model_catalog::default_selection();
         let (tx, rx) = mpsc::channel();
         let engine = spawn(
-            entry,
+            selection,
             PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
             BackendPreference::Auto,
             tx,

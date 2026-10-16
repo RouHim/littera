@@ -6,13 +6,14 @@ use iced::{Element, Length, Task};
 use crate::app::{App, AppEvent};
 use crate::config::{self, Language};
 use crate::hotkey;
+use crate::model_catalog;
 use crate::models;
 use crate::ui::{self, ChipState, Message, Step, Tone, metrics, style};
 
 /// Actions the onboarding surface can produce.
 #[derive(Debug, Clone)]
 pub enum Action {
-    SelectModel(String),
+    SelectModel(&'static str),
     Download,
     CancelDownload,
     RetryDownload,
@@ -31,11 +32,10 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
     match action {
         Action::SelectModel(id) => {
             app.onboarding.model_ready = false;
-            app.onboarding.model = id;
+            app.onboarding.model = id.to_owned();
         }
         Action::Download | Action::RetryDownload => {
-            let entry = app.onboarding.entry();
-            return vec![app.start_download(entry)];
+            return vec![app.start_download(app.onboarding.selection())];
         }
         Action::CancelDownload => app.cancel_download(),
         Action::SelectLanguage(language) => app.onboarding.language = language,
@@ -53,9 +53,8 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
             }
         }
         Action::Next => {
-            if app.onboarding.language_conflict().is_none()
-                && let Some(next) = app.onboarding.step.next()
-            {
+            // A language mismatch is a warning, never a blocker (FR-011).
+            if let Some(next) = app.onboarding.step.next() {
                 app.onboarding.step = next;
             }
         }
@@ -82,9 +81,10 @@ fn finish(app: &mut App) -> Vec<Task<Message>> {
     }
 
     let mut tasks = Vec::new();
-    let entry = models::entry(&model).unwrap_or_else(models::default_entry);
-    if previous.model != entry.id || !app.model_path.exists() {
-        tasks.extend(app.adopt_model(entry));
+    let selection =
+        model_catalog::artifact(&model).unwrap_or_else(model_catalog::default_selection);
+    if previous.model != selection.artifact.id || !app.model_path.exists() {
+        tasks.extend(app.adopt(selection));
     }
     if previous.hotkey != hotkey {
         tasks.push(crate::app::bind_task(
@@ -144,45 +144,53 @@ fn step_indicator(current: Step) -> Element<'static, Action> {
     chips.into()
 }
 
+/// FR-010: exactly the three curated models, plus a pointer at the full list.
 fn model_step(app: &App) -> Element<'_, Action> {
     let ui = &app.onboarding;
-    let selected_index = models::CATALOG
-        .iter()
-        .position(|entry| entry.id == ui.model)
-        .unwrap_or(0);
+    let selected = ui.selection();
     let mut entries = column![].spacing(metrics::SPACE_MD);
 
-    for (index, entry) in models::CATALOG.iter().enumerate() {
-        let selected = entry.id == ui.model;
+    for selection in model_catalog::ONBOARDING_ARTIFACT_IDS
+        .iter()
+        .filter_map(|id| model_catalog::artifact(id))
+    {
+        let active = selection == selected;
 
         let header = row![
-            radio(entry.label, index, Some(selected_index), move |index| {
-                Action::SelectModel(models::CATALOG[index].id.to_owned())
-            })
+            radio(
+                selection.label(),
+                selection.artifact.id,
+                Some(selected.artifact.id),
+                Action::SelectModel,
+            )
             .style(style::radio)
             .text_size(metrics::TEXT_BODY)
             .spacing(metrics::SPACE_SM),
             Space::new().width(Length::Fill),
             ui::muted::<Action>("Download size"),
-            ui::data(entry.approx_size_label),
+            ui::data(models::human_size(selection.artifact.size_bytes)),
         ]
         .spacing(metrics::SPACE_SM)
         .align_y(iced::Alignment::Center);
 
-        let mut body = column![header, ui::lead(entry.note)].spacing(metrics::SPACE_SM);
+        let mut body = column![header, ui::lead(selection.variant.note)].spacing(metrics::SPACE_SM);
 
-        if selected {
+        if active {
             body = body.push(ui::model_panel(
                 app,
-                entry,
+                selection,
                 ui.model_ready,
                 Action::Download,
                 Action::CancelDownload,
                 Action::RetryDownload,
             ));
+            if let Some(warning) = model_catalog::language_warning(selection.variant, ui.language) {
+                // Informational only: the model stays selectable (FR-011).
+                body = body.push(ui::banner(warning, Tone::Warning));
+            }
         }
 
-        entries = entries.push(if selected {
+        entries = entries.push(if active {
             ui::card_active(body)
         } else {
             ui::card(body)
@@ -195,6 +203,7 @@ fn model_step(app: &App) -> Element<'_, Action> {
             "Speech recognition runs fully in-process from this binary — no separate runtime, no cloud."
         ),
         entries,
+        ui::muted::<Action>("More models are available in the settings."),
     ]
     .spacing(metrics::SPACE_MD)
     .into()
@@ -221,7 +230,7 @@ fn language_step(app: &App) -> Element<'_, Action> {
     let mut content =
         column![ui::heading::<Action>("Language"), ui::card(options)].spacing(metrics::SPACE_MD);
 
-    if let Some(warning) = ui.language_conflict() {
+    if let Some(warning) = ui.language_warning() {
         content = content.push(ui::banner(warning, Tone::Warning));
     } else {
         content = content.push(ui::lead::<Action>(
@@ -354,7 +363,6 @@ fn check_step(app: &App) -> Element<'_, Action> {
 
 fn footer(app: &App) -> Element<'_, Action> {
     let ui = &app.onboarding;
-    let blocked = ui.language_conflict().is_some();
 
     let back = match ui.step.previous() {
         Some(_) => button("Back")
@@ -367,18 +375,11 @@ fn footer(app: &App) -> Element<'_, Action> {
     };
 
     let next: Element<'_, Action> = if ui.step.next().is_some() {
-        if blocked {
-            button("Next")
-                .style(style::primary_button)
-                .padding(metrics::BUTTON_PADDING)
-                .into()
-        } else {
-            button("Next")
-                .style(style::primary_button)
-                .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::Next)
-                .into()
-        }
+        button("Next")
+            .style(style::primary_button)
+            .padding(metrics::BUTTON_PADDING)
+            .on_press(Action::Next)
+            .into()
     } else {
         button("Finish")
             .style(style::primary_button)
@@ -387,15 +388,10 @@ fn footer(app: &App) -> Element<'_, Action> {
             .into()
     };
 
-    let mut bar = row![back]
+    row![back]
         .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center);
-
-    if blocked {
-        bar = bar.push(ui::muted::<Action>(
-            "Resolve the language conflict to continue.",
-        ));
-    }
-
-    bar.push(Space::new().width(Length::Fill)).push(next).into()
+        .align_y(iced::Alignment::Center)
+        .push(Space::new().width(Length::Fill))
+        .push(next)
+        .into()
 }

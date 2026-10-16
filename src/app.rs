@@ -15,6 +15,7 @@ use iced::{Subscription, Task};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::config::{self, SharedConfig};
+use crate::model_catalog::{self, Selection};
 use crate::models;
 use crate::ui::{self, Message};
 use crate::{audio, clipboard, diagnostics, engine, hotkey, inserter, ipc, overlay, tray};
@@ -450,7 +451,8 @@ pub struct App {
     /// Live settings (FR-016); every subsystem reads through this.
     pub cfg: SharedConfig,
     pub engine: engine::Engine,
-    pub model_entry: &'static models::ModelEntry,
+    /// The active variant/artifact; the config persists its artifact id (FR-008).
+    pub model: Selection,
     pub model_path: PathBuf,
     pub engine_info: Option<engine::EngineInfo>,
     pub engine_error: Option<String>,
@@ -481,6 +483,9 @@ pub struct App {
 
     pub machine: DictationMachine,
     pub checks: Vec<diagnostics::Check>,
+    /// Whether the startup problem notice was already evaluated for this run
+    /// (FR-014); it fires at most once per process.
+    startup_checked: bool,
     pub windows: BTreeMap<window::Id, ui::Surface>,
     pub tray: Option<tray::TrayState>,
     tray_state: String,
@@ -495,10 +500,16 @@ pub struct App {
 
 /// One model download in flight (FR-003).
 pub struct DownloadState {
-    pub entry: &'static models::ModelEntry,
+    pub selection: Selection,
+    /// The catalog id that was configured when the download started; a user who
+    /// switches to another already-downloaded model meanwhile is not overridden.
+    pub started_with: &'static str,
     pub cancel: Arc<AtomicBool>,
     pub received: u64,
     pub total: u64,
+    /// The artifact is already on disk, so the run starts with the SHA-256
+    /// check; `received` only moves once a transfer is really needed.
+    pub verifying: bool,
     pub error: Option<String>,
 }
 
@@ -516,6 +527,24 @@ impl DownloadState {
     }
 }
 
+/// Whether the download pipeline is occupied (FR-006, SC-008): exactly one
+/// download runs at a time, so a second request is refused while one is running.
+pub fn download_in_flight(download: Option<&DownloadState>) -> bool {
+    download.is_some_and(DownloadState::is_running)
+}
+
+/// Whether a finished download belongs to a model the user switched away from
+/// while it ran (FR-008).
+///
+/// Such a download is reported as available, not activated: activation replaces
+/// the running model and persists the id, which must follow the user's last
+/// choice (`configured`), not the artifact that finished last. A download that
+/// started for the still-configured model (or the one the user switched *to*
+/// mid-flight, `started_with`) is activated.
+pub fn download_is_stale(configured: &str, selection: Selection, started_with: &str) -> bool {
+    configured != selection.artifact.id && configured != started_with
+}
+
 impl App {
     /// iced boot: build every subsystem and the initial task set.
     pub fn boot() -> (Self, Task<Message>) {
@@ -525,8 +554,9 @@ impl App {
             Err(error) => (config::Config::default(), Some(format!("{error:#}"))),
         };
 
-        let entry = models::entry(&cfg.model).unwrap_or_else(models::default_entry);
-        let model_path = models::path_for(entry).unwrap_or_default();
+        let selection =
+            model_catalog::artifact(&cfg.model).unwrap_or_else(model_catalog::default_selection);
+        let model_path = models::path_for(selection.artifact).unwrap_or_default();
 
         let runtime_events = events();
 
@@ -538,7 +568,7 @@ impl App {
             AppEvent::Eng,
         );
 
-        let engine = engine::spawn(entry, model_path.clone(), cfg.backend, engine_tx);
+        let engine = engine::spawn(selection, model_path.clone(), cfg.backend, engine_tx);
         let (probe_info, probe_error) = engine::probe_devices(cfg.backend);
         if probe_info.is_none() {
             tracing::warn!(
@@ -574,7 +604,7 @@ impl App {
         let mut app = Self {
             cfg: SharedConfig::new(cfg.clone()),
             engine,
-            model_entry: entry,
+            model: selection,
             model_path,
             engine_info: None,
             engine_error: None,
@@ -597,13 +627,14 @@ impl App {
             portal_available: None,
             machine: DictationMachine::new(),
             checks: Vec::new(),
+            startup_checked: false,
             windows: BTreeMap::new(),
             tray: None,
             tray_state: "Idle".to_owned(),
             download: None,
             notice: None,
             onboarding: ui::OnboardingUi::from_config(&cfg),
-            settings: ui::SettingsUi::from_config(&cfg),
+            settings: ui::SettingsUi::default(),
             events: runtime_events,
         };
 
@@ -650,7 +681,7 @@ impl App {
                 cfg.backend,
             ));
         } else {
-            tracing::info!(model = entry.id, "model not downloaded yet");
+            tracing::info!(model = selection.artifact.id, "model not downloaded yet");
         }
 
         // Onboarding on the very first run (FR-001); the daemon stays windowless
@@ -706,16 +737,10 @@ impl App {
                 self.onboarding = ui::OnboardingUi::from_config(&self.cfg.snapshot());
                 vec![self.open_surface(ui::Surface::Onboarding)]
             }
-            Message::ReopenOnboarding => {
-                if let Err(error) = self.cfg.update(|cfg| cfg.onboarding_complete = false) {
-                    tracing::warn!(%error, "persisting the onboarding flag failed");
-                }
-                self.onboarding = ui::OnboardingUi::from_config(&self.cfg.snapshot());
-                vec![self.open_surface(ui::Surface::Onboarding)]
-            }
             Message::Key(event) => self.handle_key(event),
             Message::Onboarding(action) => crate::ui_onboarding::update(self, action),
             Message::Settings(action) => crate::ui_settings::update(self, action),
+            Message::Problems(action) => crate::ui_problems::update(self, action),
         }
     }
 
@@ -731,14 +756,13 @@ impl App {
         match captured {
             ui::CaptureTarget::Onboarding(chord) => {
                 self.onboarding.hotkey = chord;
+                Vec::new()
             }
             ui::CaptureTarget::Settings(chord) => {
-                self.settings.hotkey_draft = Some(chord);
                 self.settings.capture.reset();
+                self.apply_hotkey(chord)
             }
         }
-
-        Vec::new()
     }
 
     /// Handle one background event.
@@ -837,7 +861,14 @@ impl App {
                     tracing::warn!(%error, "persisting the hotkey source failed");
                 }
                 self.refresh_checks();
-                Vec::new()
+                let mut tasks = Vec::new();
+                if let Some(open) = self.evaluate_startup_problems() {
+                    tasks.push(open);
+                }
+                if let Some(close) = self.close_problems_if_clean() {
+                    tasks.push(close);
+                }
+                tasks
             }
             AppEvent::PortalProbed(available) => {
                 tracing::info!(available, "global shortcut portal probed");
@@ -866,11 +897,23 @@ impl App {
                     fallback = info.fallback.as_deref().unwrap_or("-"),
                     "engine ready"
                 );
+                if let Some(fallback) = &info.fallback {
+                    // FR-005: a CPU fallback must stay user-visible now that the
+                    // settings diagnostics tab is gone.
+                    self.set_notice(format!("Running on the CPU backend — {fallback}"));
+                }
                 self.engine_info = Some(info.clone());
                 self.engine_error = None;
                 self.refresh_checks();
                 self.refresh_tray();
-                Vec::new()
+                let mut tasks = Vec::new();
+                if let Some(open) = self.evaluate_startup_problems() {
+                    tasks.push(open);
+                }
+                if let Some(close) = self.close_problems_if_clean() {
+                    tasks.push(close);
+                }
+                tasks
             }
             engine::EngineEvent::Partial { text } => {
                 let effects = self.machine.partial(text);
@@ -889,7 +932,11 @@ impl App {
                 self.engine_error = Some(message.clone());
                 self.refresh_checks();
                 let effects = self.machine.failed(message, now);
-                self.run(effects)
+                let mut tasks = self.run(effects);
+                if let Some(open) = self.evaluate_startup_problems() {
+                    tasks.push(open);
+                }
+                tasks
             }
         }
     }
@@ -1031,10 +1078,9 @@ impl App {
                 {
                     (
                         overlay::OverlayState::Notice(format!(
-                            "Downloading {} ({}), quality note: {} — now {:.0}%",
-                            download.entry.label,
-                            download.entry.approx_size_label,
-                            download.entry.note,
+                            "Downloading {} ({}) — now {:.0}%",
+                            download.selection.label(),
+                            models::human_size(download.selection.artifact.size_bytes),
                             download.percent()
                         )),
                         Duration::ZERO,
@@ -1114,42 +1160,64 @@ impl App {
         {
             self.set_notice(format!(
                 "Downloading {} … {:.0}%",
-                download.entry.label,
+                download.selection.label(),
                 download.percent()
             ));
             return vec![];
         }
 
-        let entry = self.model_entry;
-        let task = self.start_download(entry);
+        let selection = self.model;
+        let task = self.start_download(selection);
         self.set_notice(format!(
             "{} ({}), quality note: {} — downloading now, dictation works once it is ready",
-            entry.label, entry.approx_size_label, entry.note
+            selection.label(),
+            models::human_size(selection.artifact.size_bytes),
+            selection.variant.note
         ));
         vec![task]
     }
 
     /// Kick off a resumable, checksum-verified download (FR-003).
-    pub fn start_download(&mut self, entry: &'static models::ModelEntry) -> Task<Message> {
+    ///
+    /// Exactly one download runs at a time (FR-006): while one is running, a
+    /// second request is refused with a notice instead of replacing the first.
+    pub fn start_download(&mut self, selection: Selection) -> Task<Message> {
+        if download_in_flight(self.download.as_ref()) {
+            self.set_notice(
+                "A model download is already running — wait for it or cancel it".to_owned(),
+            );
+            return Task::none();
+        }
+
         let cancel = Arc::new(AtomicBool::new(false));
+        // An artifact that is already on disk makes this a verification run:
+        // `models::ensure` checks the SHA-256 first and only transfers bytes when
+        // the file fails that check (FR-003).
+        let verifying = models::path_for(selection.artifact).is_ok_and(|path| path.exists());
+        let configured = self.cfg.snapshot().model;
         self.download = Some(DownloadState {
-            entry,
+            selection,
+            started_with: model_catalog::artifact(&configured)
+                .map_or(model_catalog::DEFAULT_ARTIFACT_ID, |found| {
+                    found.artifact.id
+                }),
             cancel: Arc::clone(&cancel),
             received: 0,
-            total: entry.size_bytes,
+            total: selection.artifact.size_bytes,
+            verifying,
             error: None,
         });
 
         let progress_events = self.events.clone();
         let progress: Arc<dyn Fn(u64, u64) + Send + Sync> = Arc::new(move |received, total| {
             let _ = progress_events.send(AppEvent::ModelProgress {
-                id: entry.id,
+                id: selection.artifact.id,
                 received,
                 total,
             });
         });
 
-        let target = entry;
+        let target = selection.artifact;
         Task::perform(
             async move {
                 models::ensure(target, cancel, progress)
@@ -1176,12 +1244,17 @@ impl App {
         let Some(download) = self.download.as_mut() else {
             return;
         };
-        if download.entry.id != id {
+        if download.selection.artifact.id != id {
             return;
         }
 
         download.received = received;
         download.total = total;
+        if received > 0 {
+            // Bytes are moving: the checksum failed and a repair download is
+            // under way, so the panel must stop saying "verifying".
+            download.verifying = false;
+        }
 
         if self.machine.state() == &DictationState::Idle {
             self.refresh_overlay(false);
@@ -1193,31 +1266,74 @@ impl App {
         id: &'static str,
         result: Result<PathBuf, String>,
     ) -> Vec<Task<Message>> {
-        let Some(download) = self.download.as_mut() else {
+        let Some(download) = self.download.as_ref() else {
             return Vec::new();
         };
-        if download.entry.id != id {
+        if download.selection.artifact.id != id {
             return Vec::new();
         }
+        let selection = download.selection;
+        let started_with = download.started_with;
+        let verified_only = download.verifying;
 
         match result {
             Ok(path) => {
-                let entry = download.entry;
+                // A model the user switched away from while it downloaded is
+                // reported, not activated: activation replaces the running model
+                // (FR-008).
+                let configured = self.cfg.snapshot().model;
+                let stale = download_is_stale(&configured, selection, started_with);
                 self.download = None;
-                self.model_entry = entry;
+                if stale {
+                    self.set_notice(format!(
+                        "{} is downloaded — select it to use it",
+                        selection.label()
+                    ));
+                    return Vec::new();
+                }
+
+                self.model = selection;
                 self.model_path = path.clone();
-                self.onboarding.model_ready = true;
+                if self.onboarding.selection() == selection {
+                    self.onboarding.model_ready = true;
+                }
+                // FR-008: the active model is persisted as its catalog id.
+                if let Err(error) = self
+                    .cfg
+                    .update(|cfg| cfg.model = selection.artifact.id.to_owned())
+                {
+                    tracing::error!(%error, "saving the model selection failed");
+                    self.settings.status = Some(ui::SettingsStatus {
+                        text: format!("Saving failed: {error:#}"),
+                        tone: ui::Tone::Error,
+                        section: ui::SettingsSection::Model,
+                    });
+                }
 
                 let backend = self.cfg.snapshot().backend;
                 self.engine
                     .send(engine::EngineCmd::LoadModel(path, backend));
-                self.set_notice(format!(
-                    "{} is ready — press the hotkey to dictate",
-                    entry.label
-                ));
+                if verified_only {
+                    tracing::info!(file = %self.model_path.display(), "model verified; nothing downloaded");
+                    self.set_notice(format!("{} — checksum verified", selection.label()));
+                } else {
+                    self.set_notice(format!(
+                        "{} is ready — press the hotkey to dictate",
+                        selection.label()
+                    ));
+                }
             }
             Err(error) => {
                 let cancelled = error.contains("cancelled");
+                if cancelled && verified_only {
+                    // A cancelled check transferred nothing and touched no
+                    // partial file, so it is not a download failure: the panel
+                    // returns to its normal state.
+                    self.download = None;
+                    tracing::info!("model verification cancelled");
+                    self.refresh_overlay(false);
+                    return Vec::new();
+                }
                 if let Some(download) = self.download.as_mut() {
                     download.error = Some(error.clone());
                 }
@@ -1258,6 +1374,56 @@ impl App {
         self.checks = diagnostics::collect(&config, &state);
     }
 
+    /// FR-014: open the startup problem notice when a capability check fails —
+    /// the daemon itself starts without any window, so this is the only way a
+    /// user learns about a broken capability without relaunching it.
+    ///
+    /// Evaluated at most once per process, and only after the asynchronous boot
+    /// probes have settled: before the bind result (and, with a model on disk,
+    /// the engine's first report) a fresh check would report the in-flight probe
+    /// as a failure.
+    fn evaluate_startup_problems(&mut self) -> Option<Task<Message>> {
+        if self.startup_checked {
+            return None;
+        }
+
+        if self.binding.is_none() && self.hotkey_error.is_none() {
+            return None;
+        }
+        if self.model_path.exists() && self.engine_info.is_none() && self.engine_error.is_none() {
+            return None;
+        }
+
+        self.startup_checked = true;
+
+        // First run: onboarding ends on the system-check step; a second window
+        // would only duplicate it.
+        if !self.cfg.snapshot().onboarding_complete {
+            return None;
+        }
+
+        if self.checks.iter().all(|check| check.ok) {
+            return None;
+        }
+
+        let failing = self.checks.iter().filter(|check| !check.ok).count();
+        tracing::info!(failing, "opening the startup problem notice");
+        Some(self.open_surface(ui::Surface::Problems))
+    }
+
+    /// Close an open problem notice once every check passes again (FR-014);
+    /// the notice's own `Re-check` lands here, and so does a late bind result.
+    fn close_problems_if_clean(&mut self) -> Option<Task<Message>> {
+        let open = self
+            .windows
+            .values()
+            .any(|surface| *surface == ui::Surface::Problems);
+        if open && self.checks.iter().all(|check| check.ok) {
+            return Some(self.close_surface(ui::Surface::Problems));
+        }
+        None
+    }
+
     /// Reflect the dictation state in the tray tooltip (FR-017).
     pub fn refresh_tray(&mut self) {
         let state = match self.machine.state() {
@@ -1275,11 +1441,11 @@ impl App {
         }
     }
 
-    /// Adopt a new model selection: load it when the file is present, otherwise
-    /// start the verified download (FR-003, Scenario 1.2).
-    pub fn adopt_model(&mut self, entry: &'static models::ModelEntry) -> Vec<Task<Message>> {
-        self.model_entry = entry;
-        self.model_path = models::path_for(entry).unwrap_or_default();
+    /// Adopt a model selection: load it when the file is present, otherwise
+    /// start the verified download (FR-003, FR-008).
+    pub fn adopt(&mut self, selection: Selection) -> Vec<Task<Message>> {
+        self.model = selection;
+        self.model_path = models::path_for(selection.artifact).unwrap_or_default();
 
         if self.model_path.exists() {
             let backend = self.cfg.snapshot().backend;
@@ -1289,8 +1455,112 @@ impl App {
             ));
             Vec::new()
         } else {
-            vec![self.start_download(entry)]
+            vec![self.start_download(selection)]
         }
+    }
+
+    /// Select a catalog artifact: persist it and adopt it, i.e. load it when the
+    /// file is present and download it otherwise (FR-008).
+    ///
+    /// The selection is never blocked by the configured language (FR-011); a
+    /// selection that cannot be persisted keeps the previous one and reports why
+    /// in the settings footer.
+    pub fn select_artifact(&mut self, id: &'static str) -> Vec<Task<Message>> {
+        let Some(selection) = model_catalog::artifact(id) else {
+            tracing::warn!(id, "unknown catalog id; keeping the current model");
+            return Vec::new();
+        };
+        if self.cfg.snapshot().model == selection.artifact.id {
+            return Vec::new();
+        }
+
+        if let Err(error) = self
+            .cfg
+            .update(|cfg| cfg.model = selection.artifact.id.to_owned())
+        {
+            tracing::error!(%error, "saving the model selection failed");
+            self.settings.status = Some(ui::SettingsStatus {
+                text: format!("Saving failed: {error:#}"),
+                tone: ui::Tone::Error,
+                section: ui::SettingsSection::Model,
+            });
+            return Vec::new();
+        }
+
+        self.settings.status = None;
+        self.refresh_checks();
+        self.adopt(selection)
+    }
+
+    /// Apply a captured chord immediately (autosave, Scenario 3.4): persist it
+    /// and rebind. A failed config write is reported in the settings footer.
+    pub fn apply_hotkey(&mut self, chord: String) -> Vec<Task<Message>> {
+        let previous = self.cfg.snapshot();
+        if previous.hotkey == chord {
+            return Vec::new();
+        }
+
+        if let Err(error) = self.cfg.update(|cfg| cfg.hotkey = chord.clone()) {
+            tracing::error!(%error, "saving the hotkey failed");
+            self.settings.status = Some(ui::SettingsStatus {
+                text: format!("Saving failed: {error:#}"),
+                tone: ui::Tone::Error,
+                section: ui::SettingsSection::Hotkey,
+            });
+            return Vec::new();
+        }
+
+        self.settings.status = None;
+        tracing::info!(chord, "hotkey changed in settings; rebinding");
+        vec![bind_task(&chord, previous.hotkey_source)]
+    }
+
+    /// Hand the model directory to the desktop with `xdg-open` (FR-016). The
+    /// launcher is reaped on its own thread so no zombie stays behind.
+    pub fn open_model_dir(&mut self) -> Vec<Task<Message>> {
+        let dir = match config::Config::models_dir() {
+            Ok(dir) => dir,
+            Err(error) => {
+                tracing::warn!(%error, "cannot resolve the model directory");
+                self.settings.status = Some(ui::SettingsStatus {
+                    text: format!("Opening the models folder failed: {error:#}"),
+                    tone: ui::Tone::Error,
+                    section: ui::SettingsSection::Storage,
+                });
+                return Vec::new();
+            }
+        };
+
+        let spawned = std::process::Command::new("xdg-open")
+            .arg(&dir)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        match spawned {
+            Ok(mut child) => {
+                let reaped = std::thread::Builder::new()
+                    .name("xdg-open".to_owned())
+                    .spawn(move || {
+                        let _ = child.wait();
+                    });
+                if let Err(error) = reaped {
+                    tracing::warn!(%error, "reaping xdg-open failed");
+                }
+                self.settings.status = None;
+            }
+            Err(error) => {
+                tracing::warn!(%error, dir = %dir.display(), "starting xdg-open failed");
+                self.settings.status = Some(ui::SettingsStatus {
+                    text: format!("Opening the models folder failed: {error}"),
+                    tone: ui::Tone::Error,
+                    section: ui::SettingsSection::Storage,
+                });
+            }
+        }
+
+        Vec::new()
     }
 
     /// Re-probe every capability without restarting (FR-014, SC-006).
@@ -1304,14 +1574,22 @@ impl App {
         self.probe_error = probe_error;
         self.refresh_checks();
 
+        let mut tasks = Vec::new();
+
         // Rebinding is only attempted while nothing is bound: on a portal
         // desktop every rebind would show the compositor's dialog.
         if self.hotkey.is_none() || self.hotkey_error.is_some() {
             let config = self.cfg.snapshot();
-            return vec![bind_task(&config.hotkey, config.hotkey_source)];
+            tasks.push(bind_task(&config.hotkey, config.hotkey_source));
         }
 
-        Vec::new()
+        // A passing re-check dismisses the problem notice; a rebind above lands
+        // later and re-evaluates through `HotkeyBound`.
+        if let Some(close) = self.close_problems_if_clean() {
+            tasks.push(close);
+        }
+
+        tasks
     }
 
     /// Close the window of `surface`, if it is open.
@@ -1338,6 +1616,20 @@ impl App {
             .unwrap_or_else(|error| format!("unavailable ({error:#})"))
     }
 
+    /// Disk space used by the model directory, in decimal units matching the
+    /// catalog's size labels (FR-016).
+    pub fn model_dir_usage_display(&self) -> String {
+        let Ok(dir) = config::Config::models_dir() else {
+            return "unavailable".to_owned();
+        };
+        let (bytes, files) = models::dir_usage(&dir);
+        match files {
+            0 => "Nothing stored yet".to_owned(),
+            1 => format!("{} across 1 file", models::human_size(bytes)),
+            files => format!("{} across {files} files", models::human_size(bytes)),
+        }
+    }
+
     /// Open (or focus) a surface, at most one window per surface kind.
     pub fn open_surface(&mut self, surface: ui::Surface) -> Task<Message> {
         if let Some((id, _)) = self.windows.iter().find(|(_, open)| **open == surface) {
@@ -1345,7 +1637,7 @@ impl App {
         }
 
         if surface == ui::Surface::Settings {
-            self.settings = ui::SettingsUi::from_config(&self.cfg.snapshot());
+            self.settings = ui::SettingsUi::default();
         }
 
         let (id, task) = window::open(ui::window_settings(&surface));
@@ -1734,5 +2026,74 @@ mod tests {
         assert!(effects.contains(&DictationEffect::StartCapture));
         assert_eq!(machine.state(), &DictationState::Recording);
         assert!(machine.partial_text().is_empty());
+    }
+
+    #[test]
+    fn a_download_for_an_abandoned_model_is_not_activated() {
+        let running = model_catalog::default_selection();
+        let other = model_catalog::artifact("nemotron-3.5-asr-streaming-0.6b-Q4_K_M")
+            .expect("the snapshot offers the Q4_K_M quant");
+
+        // Started for the configured model: activating it is what the user asked
+        // for.
+        assert!(!download_is_stale(
+            running.artifact.id,
+            running,
+            running.artifact.id
+        ));
+        // The user switched to this very artifact while it downloaded.
+        assert!(!download_is_stale(
+            other.artifact.id,
+            other,
+            running.artifact.id
+        ));
+        // The config did not change while it downloaded: the finished artifact
+        // becomes the active model (FR-008).
+        assert!(!download_is_stale(
+            running.artifact.id,
+            other,
+            running.artifact.id
+        ));
+        // The user switched to a third model meanwhile: the finished download is
+        // reported as available, but does not replace the running model.
+        let third = model_catalog::artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
+        assert!(download_is_stale(
+            third.artifact.id,
+            other,
+            running.artifact.id
+        ));
+    }
+
+    #[test]
+    fn only_one_download_occupies_the_pipeline() {
+        // SC-008: while a download runs, a second one is refused; a finished or
+        // cancelled one (its state carries the error) releases the pipeline.
+        assert!(!download_in_flight(None));
+
+        let selection = model_catalog::default_selection();
+        let running = DownloadState {
+            selection,
+            started_with: model_catalog::DEFAULT_ARTIFACT_ID,
+            cancel: Arc::new(AtomicBool::new(false)),
+            received: 1024,
+            total: selection.artifact.size_bytes,
+            verifying: false,
+            error: None,
+        };
+        assert!(download_in_flight(Some(&running)));
+
+        let finished = DownloadState {
+            error: Some("download cancelled".to_owned()),
+            ..DownloadState {
+                selection,
+                started_with: model_catalog::DEFAULT_ARTIFACT_ID,
+                cancel: Arc::new(AtomicBool::new(false)),
+                received: 1024,
+                total: selection.artifact.size_bytes,
+                verifying: false,
+                error: None,
+            }
+        };
+        assert!(!download_in_flight(Some(&finished)));
     }
 }

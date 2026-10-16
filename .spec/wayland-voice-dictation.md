@@ -42,7 +42,7 @@ After onboarding the application keeps running in the background. The user retur
 1. Given the application is already running, When the user launches the application again, Then the running instance opens its settings surface and the second process exits.
 2. Given a tray host is available, When the application is running, Then a tray icon shows the current dictation state and offers "Open settings" and "Quit".
 3. Given no tray host is available, When the application is running, Then settings remain reachable by relaunching the application and the missing tray host is only recorded in the log.
-4. Given the user changes model, language or hotkey in settings, When the change is saved, Then it applies to the next dictation without restarting the application.
+4. Given the user changes model, language or hotkey in settings, When the change is made, Then it applies without restarting the application and is persisted immediately.
 
 ### Scenario 4 - Degraded and failing paths (P1)
 
@@ -51,7 +51,7 @@ Capabilities that this platform does not grant by default must degrade into a wo
 **Acceptance**
 1. Given the keystroke-injection device is not writable, When a dictation finishes, Then the transcript is placed on the clipboard and the overlay tells the user to paste manually, naming the blocked device path.
 2. Given the hotkey must be read from input devices and those are not readable, When the system check runs, Then it shows the exact command that grants access and re-checks on demand without restarting the application.
-3. Given no Vulkan device is present or the Vulkan backend fails to initialize, When the engine starts, Then it continues on the CPU backend and the diagnostics surface states that fallback explicitly.
+3. Given no Vulkan device is present or the Vulkan backend fails to initialize, When the engine starts, Then it continues on the CPU backend and the overlay notice plus the diagnostics output state that fallback explicitly.
 4. Given a model download is interrupted, When the user retries, Then it resumes and is accepted only after the checksum matches; a file that fails verification is rejected with an actionable error.
 5. Given the engine reports an error during a dictation, When the error surfaces, Then the overlay shows a short actionable message and the recording is discarded without inserting partial text.
 6. Given a second dictation is started while the previous one is still being finalized, When the engine serializes the work, Then the new recording is queued and the overlay reflects the queued state instead of dropping audio.
@@ -71,7 +71,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-002**: The model selector MUST offer at least three entries with size and quality notes: the multilingual Nemotron 3.5 ASR Streaming Q8_0 (approximately 751 MB, default), the same model at Q4_K_M (approximately 496 MB), and the English-only Nemotron Speech Streaming EN 0.6B. Every entry MUST state its download size before the user commits to it.
 - **FR-003**: Model artifacts MUST be downloaded on demand, resumed after interruption, verified against a published SHA-256, and stored outside the binary in an XDG data directory. The application MUST refuse to load unverified artifacts and MUST check free disk space before starting a download.
 - **FR-004**: Speech recognition MUST run inside the application process from the application's own binary. Installing a separate speech runtime, background daemon, Python environment, or using a cloud service MUST NOT be required for dictation to work.
-- **FR-005**: The engine MUST use a Vulkan GPU backend when a Vulkan device is available, MUST report the active backend and device name in the UI, and MUST fall back to CPU with an explicit, user-visible notice when no usable Vulkan device exists.
+- **FR-005**: The engine MUST use a Vulkan GPU backend when a Vulkan device is available, MUST report the active backend and device name in the diagnostics output, and MUST fall back to CPU with an explicit, user-visible notice when no usable Vulkan device exists.
 - **FR-006**: Recognition MUST be streaming: partial text is produced while the user is speaking, and exactly one final insertion happens per dictation.
 - **FR-007**: The language hint MUST support `auto`, `en-US`, and `de-DE`. When `auto` is selected, language tags produced by the model MUST NOT appear in inserted text.
 - **FR-008**: Global hotkey registration MUST prefer the desktop's global-shortcut portal and MUST fall back to a listen-only key-device listener when the portal is missing or refuses registration. Exactly one mechanism may be active at a time and the active mechanism MUST be visible in settings.
@@ -80,7 +80,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-011**: The dictation overlay MUST appear on the monitor that has keyboard focus — as a layer-surface overlay where the compositor supports that protocol, otherwise as a regular non-activating window. It MUST NOT take keyboard focus, MUST be visible only while recording or transcribing, MUST display the current state (recording with elapsed time and input level, transcribing, no speech, error) plus the streaming partial text, and MUST NOT reserve layout space on the monitor.
 - **FR-012**: The final transcript MUST be placed on the Wayland clipboard and MUST remain there after insertion; the application MUST NOT implement clipboard restoration.
 - **FR-013**: Automatic insertion MUST synthesize the paste chord in-process into the kernel's input-injection device. If that device is not writable, the application MUST degrade to clipboard-only mode and state the reason and the remediation in the UI. External paste tools and paste daemons MUST NOT be dependencies.
-- **FR-014**: A system-check surface MUST report hotkey availability, paste-permission availability, and GPU backend/device, and MUST name the exact command or configuration to fix any failing check. Checks MUST be re-runnable on demand without restarting the application.
+- **FR-014**: A system-check surface MUST report hotkey availability, paste-permission availability, GPU backend/device, and overlay availability, and MUST name the exact command or configuration to fix any failing check. When a check fails at startup, a notice window MUST open by itself — also when the daemon otherwise starts without any window. Checks MUST be re-runnable on demand without restarting the application.
 - **FR-015**: The application MUST run as a single instance using an XDG runtime-directory socket; a second launch MUST forward "open settings" to the running instance and exit.
 - **FR-016**: Settings MUST be persisted in the XDG config directory and MUST cover at least: selected model, language, hotkey binding plus its source (portal or device listener), onboarding-completed flag, and backend preference. The settings surface MUST show where models are stored.
 - **FR-017**: A tray icon (StatusNotifierItem) MUST show the dictation state and offer "Open settings" and "Quit". Without a tray host the application MUST continue to work, with settings reachable by relaunching it.
@@ -88,7 +88,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-019**: User-visible failures MUST be actionable text naming cause and remedy, never silent. Internal logging MUST use `tracing` with contextual spans instead of `println!`.
 - **FR-020**: Non-test code MUST NOT use `unwrap`/`expect`. HTTPS downloads MUST use rustls. Static UI assets (fonts, icons) MUST be embedded in the binary, and the repository MUST pass `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`.
 - **FR-021**: The source MUST be organized as flat, single-responsibility Rust files declared at the crate root, without nested module trees; engine, hotkey source, text inserter, and overlay presentation MUST sit behind narrow interfaces so each can be replaced or tested independently.
-- **FR-022**: The application MUST expose the effective backend, device, model, language, hotkey mechanism and their fallback states in one diagnostics view, so support questions can be answered without reading logs.
+- **FR-022**: `lingua --diagnostics` MUST expose the effective backend, device, model, language and hotkey mechanism with their fallback states in one output, so support questions can be answered without reading logs.
 
 ## Key Entities
 
@@ -96,7 +96,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **Model catalog entry**: one selectable model variant — display name, quantization, download size, source URL, expected SHA-256, local path, and state (not downloaded, downloading with progress, verifying, ready, failed).
 - **Dictation session**: one press-to-insert cycle — state (idle, recording, transcribing, inserting, inserted, failed), start timestamp, accumulated partial text, final text, and the language actually used.
 - **Hotkey binding**: the active trigger — chord, human-readable trigger description as reported by the compositor or captured from the device listener, and the mechanism that owns it.
-- **System check result**: one capability probe — capability name (hotkey access, paste permission, GPU backend), status, detected detail (for example device name or blocked path), and the remediation command when failing.
+- **System check result**: one capability probe — capability name (hotkey access, paste permission, GPU backend, overlay backend), status, detected detail (for example device name or blocked path), and the remediation command when failing.
 - **Transcript**: the recognition result of one dictation — text, language, whether it was inserted or only copied to the clipboard, and the reason when it was discarded.
 
 ## Edge Cases

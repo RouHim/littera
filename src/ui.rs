@@ -10,10 +10,11 @@ use iced::widget::{button, container, progress_bar, scrollable, text};
 use iced::{Background, Element, Font, Length, Padding, Theme, border, window};
 
 use crate::app::{App, AppEvent};
-use crate::config::{BackendPreference, Config, Language};
+use crate::config::{Config, Language};
 use crate::diagnostics::Check;
 use crate::hotkey::{self, KeyToken, Modifier};
-use crate::models::{self, ModelEntry};
+use crate::model_catalog::{self, Selection};
+use crate::models;
 
 pub const ICON_PNG: &[u8] = include_bytes!("../assets/lingua-64.png");
 
@@ -53,19 +54,21 @@ pub enum Message {
     Key(KeyEvent),
     /// Show the onboarding surface (first run).
     OpenOnboarding,
-    /// Re-run onboarding after completion (settings action).
-    ReopenOnboarding,
     /// A message from the onboarding surface.
     Onboarding(crate::ui_onboarding::Action),
     /// A message from the settings surface.
     Settings(crate::ui_settings::Action),
+    /// A message from the startup problem notice.
+    Problems(crate::ui_problems::Action),
 }
 
-/// The two windows the daemon can own.
+/// The three windows the daemon can own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Surface {
     Onboarding,
     Settings,
+    /// The startup problem notice (FR-014).
+    Problems,
 }
 
 /// The app palette: one dark foundation for both windows and the overlay
@@ -137,6 +140,8 @@ pub mod metrics {
     pub const SPACE_MD: f32 = 12.0;
     pub const SPACE_LG: f32 = 16.0;
     pub const SPACE_XL: f32 = 24.0;
+    /// The gap between settings sections.
+    pub const SPACE_XXL: f32 = 32.0;
 
     // Shape: controls are rounded, surfaces more so, step chips are pills.
     pub const RADIUS_CONTROL: f32 = 8.0;
@@ -154,8 +159,6 @@ pub mod metrics {
 
     /// The padding of a labelled button: `[vertical, horizontal]`.
     pub const BUTTON_PADDING: [f32; 2] = [SPACE_SM, SPACE_LG];
-    /// The padding of a segmented navigation item.
-    pub const SEGMENT_PADDING: [f32; 2] = [SPACE_SM, SPACE_MD];
 
     // Scrollbar groove and scroller widths.
     pub const SCROLLBAR_WIDTH: f32 = 10.0;
@@ -168,6 +171,7 @@ pub mod style {
     use super::{Tone, metrics, palette};
     use iced::widget::radio as radio_widget;
     use iced::widget::scrollable as scrollable_widget;
+    use iced::widget::text_input as text_input_widget;
     use iced::widget::{button, container, progress_bar};
     use iced::{Background, Border, Color, Shadow, Theme, border};
 
@@ -213,49 +217,20 @@ pub mod style {
         }
     }
 
-    /// One item of a segmented navigation; `selected` marks the active view.
-    pub fn segment(selected: bool) -> impl Fn(&Theme, button::Status) -> button::Style + 'static {
-        move |_theme, status| {
-            let (background, border_color, text_color) = match (selected, status) {
-                (true, button::Status::Active) => (
-                    palette::alpha(palette::ACCENT, 0.16),
-                    palette::ACCENT,
-                    palette::ACCENT,
-                ),
-                (true, button::Status::Hovered) => (
-                    palette::alpha(palette::ACCENT, 0.24),
-                    palette::ACCENT,
-                    palette::ACCENT,
-                ),
-                (true, button::Status::Pressed) => (
-                    palette::alpha(palette::ACCENT, 0.30),
-                    palette::ACCENT,
-                    palette::ACCENT,
-                ),
-                (true, button::Status::Disabled) => (
-                    palette::alpha(palette::ACCENT, 0.10),
-                    palette::BORDER,
-                    palette::MUTED,
-                ),
-                (false, button::Status::Hovered) => (
-                    palette::SURFACE_HOVER,
-                    palette::BORDER_STRONG,
-                    palette::TEXT,
-                ),
-                (false, button::Status::Pressed) => {
-                    (palette::SURFACE, palette::BORDER_STRONG, palette::TEXT)
-                }
-                (false, button::Status::Active | button::Status::Disabled) => {
-                    (palette::SURFACE, palette::BORDER_STRONG, palette::MUTED)
-                }
-            };
+    /// A link-style button: reads like the value it opens, accents on hover.
+    pub fn link(_theme: &Theme, status: button::Status) -> button::Style {
+        let (background, text_color) = match status {
+            button::Status::Active => (None, palette::TEXT),
+            button::Status::Hovered => (fill(palette::SURFACE_HOVER), palette::ACCENT),
+            button::Status::Pressed => (fill(palette::SURFACE), palette::ACCENT_HOVER),
+            button::Status::Disabled => (None, palette::MUTED),
+        };
 
-            button::Style {
-                background: fill(background),
-                text_color,
-                border: outline(border_color, metrics::RADIUS_CONTROL),
-                ..button::Style::default()
-            }
+        button::Style {
+            background,
+            text_color,
+            border: outline(Color::TRANSPARENT, metrics::RADIUS_CONTROL),
+            ..button::Style::default()
         }
     }
 
@@ -322,6 +297,17 @@ pub mod style {
         }
     }
 
+    /// The model-card indicator bars: the same accent, quieter and thin.
+    /// Deliberately not the download progress look — these are reference values,
+    /// not work in flight.
+    pub fn progress_subtle(_theme: &Theme) -> progress_bar::Style {
+        progress_bar::Style {
+            background: Background::Color(palette::alpha(palette::BORDER_STRONG, 0.55)),
+            bar: Background::Color(palette::alpha(palette::ACCENT, 0.7)),
+            border: border::rounded(1.0),
+        }
+    }
+
     /// A radio option; the dot carries the accent, the ring carries the hover.
     /// The ring is a text tone so the unselected control stays above the 3:1
     /// non-text contrast minimum.
@@ -337,6 +323,29 @@ pub mod style {
             border_width: 1.5,
             border_color,
             text_color: Some(palette::TEXT),
+        }
+    }
+
+    /// The model search field: surface fill, accent border while focused.
+    pub fn text_input(
+        _theme: &Theme,
+        status: text_input_widget::Status,
+    ) -> text_input_widget::Style {
+        let border_color = match status {
+            text_input_widget::Status::Focused { .. } => palette::ACCENT,
+            text_input_widget::Status::Hovered => palette::BORDER_STRONG,
+            text_input_widget::Status::Active | text_input_widget::Status::Disabled => {
+                palette::BORDER
+            }
+        };
+
+        text_input_widget::Style {
+            background: Background::Color(palette::SURFACE),
+            border: outline(border_color, metrics::RADIUS_CONTROL),
+            icon: palette::MUTED,
+            placeholder: palette::MUTED,
+            value: palette::TEXT,
+            selection: palette::alpha(palette::ACCENT, 0.35),
         }
     }
 
@@ -398,15 +407,16 @@ impl Tone {
 
 /// Window size and appearance per surface.
 pub fn window_settings(surface: &Surface) -> window::Settings {
-    let (width, height) = match surface {
-        Surface::Onboarding => (820.0, 660.0),
-        Surface::Settings => (900.0, 720.0),
+    let (width, height, min_width, min_height) = match surface {
+        Surface::Onboarding => (820.0, 660.0, 620.0, 480.0),
+        Surface::Settings => (900.0, 720.0, 620.0, 480.0),
+        Surface::Problems => (560.0, 620.0, 420.0, 320.0),
     };
 
     window::Settings {
         size: iced::Size::new(width, height),
         position: window::Position::Centered,
-        min_size: Some(iced::Size::new(620.0, 480.0)),
+        min_size: Some(iced::Size::new(min_width, min_height)),
         icon: window_icon(),
         ..window::Settings::default()
     }
@@ -422,6 +432,7 @@ pub fn view(app: &App, id: window::Id) -> Element<'_, Message> {
     match app.windows.get(&id) {
         Some(Surface::Onboarding) => crate::ui_onboarding::view(app).map(Message::Onboarding),
         Some(Surface::Settings) => crate::ui_settings::view(app).map(Message::Settings),
+        Some(Surface::Problems) => crate::ui_problems::view(app).map(Message::Problems),
         None => iced::widget::space().into(),
     }
 }
@@ -431,16 +442,22 @@ pub fn window_title(app: &App, id: window::Id) -> String {
     match app.windows.get(&id) {
         Some(Surface::Onboarding) => "Lingua — Setup".to_owned(),
         Some(Surface::Settings) => "Lingua — Settings".to_owned(),
+        Some(Surface::Problems) => "Lingua — Problems".to_owned(),
         None => "Lingua".to_owned(),
     }
 }
 
-/// The scrollbar both surfaces use for their content region.
+/// The scrollbar every surface uses for its content region.
+///
+/// `spacing` embeds the scrollbar instead of letting it float over the content:
+/// iced then reserves `width + spacing` on the right whenever the scrollbar is
+/// visible, so cards and banners can never run under it.
 pub fn scroll_direction() -> scrollable::Direction {
     scrollable::Direction::Vertical(
         scrollable::Scrollbar::new()
             .width(metrics::SCROLLBAR_WIDTH)
-            .scroller_width(metrics::SCROLLBAR_SCROLLER),
+            .scroller_width(metrics::SCROLLBAR_SCROLLER)
+            .spacing(metrics::SPACE_SM),
     )
 }
 
@@ -770,110 +787,77 @@ pub struct OnboardingUi {
 
 impl OnboardingUi {
     pub fn from_config(cfg: &Config) -> Self {
-        let entry = models::entry(&cfg.model).unwrap_or_else(models::default_entry);
+        // An unknown (or from an older release) catalog id falls back to the
+        // default selection without rewriting the config.
+        let selection =
+            model_catalog::artifact(&cfg.model).unwrap_or_else(model_catalog::default_selection);
         Self {
             step: Step::Model,
-            model: entry.id.to_owned(),
+            model: selection.artifact.id.to_owned(),
             language: cfg.language,
             hotkey: cfg.hotkey.clone(),
             capture: ChordCapture::default(),
-            model_ready: models::path_for(entry)
+            model_ready: models::path_for(selection.artifact)
                 .map(|path| path.exists())
                 .unwrap_or(false),
         }
     }
 
-    pub fn entry(&self) -> &'static ModelEntry {
-        models::entry(&self.model).unwrap_or_else(models::default_entry)
+    /// The curated artifact this step has selected.
+    pub fn selection(&self) -> Selection {
+        model_catalog::artifact(&self.model).unwrap_or_else(model_catalog::default_selection)
     }
 
-    /// FR-002/Scenario 1: an English-only model cannot transcribe German.
-    pub fn language_conflict(&self) -> Option<&'static str> {
-        language_conflict(self.entry(), self.language)
-    }
-}
-
-/// The exact warning shown (and `Next` blocked) when the English-only model is
-/// paired with German or automatic language detection.
-pub fn language_conflict(entry: &ModelEntry, language: Language) -> Option<&'static str> {
-    if matches!(language, Language::DeDe | Language::Auto) && !entry.multilingual {
-        Some("The English-only model cannot transcribe German — choose a multilingual model.")
-    } else {
-        None
+    /// FR-002/FR-011: an English-only model cannot transcribe German. The
+    /// warning is informational — it never blocks a step (SC-007).
+    pub fn language_warning(&self) -> Option<&'static str> {
+        language_warning(self.selection(), self.language)
     }
 }
 
-/// Settings sections (FR-016/FR-022).
+/// The warning shown when the selected model does not serve the configured
+/// dictation language; `None` means the combination is fine (FR-011).
+pub fn language_warning(selection: Selection, language: Language) -> Option<&'static str> {
+    model_catalog::language_warning(selection.variant, language)
+}
+
+/// The settings section a rejected change belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Section {
-    Dictation,
-    SystemCheck,
-    Diagnostics,
+pub enum SettingsSection {
+    Model,
+    Language,
+    Hotkey,
+    Storage,
 }
 
-impl Section {
-    pub const ALL: [Section; 3] = [
-        Section::Dictation,
-        Section::SystemCheck,
-        Section::Diagnostics,
-    ];
-
-    pub fn title(self) -> &'static str {
-        match self {
-            Section::Dictation => "Dictation",
-            Section::SystemCheck => "System check",
-            Section::Diagnostics => "Diagnostics",
-        }
-    }
-}
-
-/// Editable settings state (applied on save, Scenario 3.4).
+/// The last settings change that could not be applied: a language/model
+/// conflict or a failed config write (FR-002/FR-016).
 #[derive(Debug, Clone)]
+pub struct SettingsStatus {
+    pub text: String,
+    pub tone: Tone,
+    pub section: SettingsSection,
+}
+
+/// Settings state. Every edit applies immediately (autosave, Scenario 3.4), so
+/// the surface holds nothing but transient state: the chord capture and the
+/// last change that could not be applied.
+#[derive(Debug, Clone, Default)]
 pub struct SettingsUi {
-    pub section: Section,
-    pub model: String,
-    pub language: Language,
-    pub backend: BackendPreference,
-    pub hotkey: String,
-    pub hotkey_draft: Option<String>,
     pub capture: ChordCapture,
-    pub note: Option<String>,
+    pub status: Option<SettingsStatus>,
+    /// Filters, sorting and the expanded detail of the model list (FR-005);
+    /// session-only, never persisted.
+    pub list: crate::ui_settings::ListState,
 }
 
 impl SettingsUi {
-    pub fn from_config(cfg: &Config) -> Self {
-        Self {
-            section: Section::Dictation,
-            model: cfg.model.clone(),
-            language: cfg.language,
-            backend: cfg.backend,
-            hotkey: cfg.hotkey.clone(),
-            hotkey_draft: None,
-            capture: ChordCapture::default(),
-            note: None,
-        }
-    }
-
-    pub fn entry(&self) -> &'static ModelEntry {
-        models::entry(&self.model).unwrap_or_else(models::default_entry)
-    }
-
-    pub fn language_conflict(&self) -> Option<&'static str> {
-        language_conflict(self.entry(), self.language)
-    }
-
-    /// The chord to apply on save: the captured draft, else the current one.
-    pub fn effective_hotkey(&self) -> String {
-        self.hotkey_draft
-            .clone()
-            .unwrap_or_else(|| self.hotkey.clone())
-    }
-
-    pub fn dirty(&self, cfg: &Config) -> bool {
-        self.model != cfg.model
-            || self.language != cfg.language
-            || self.backend != cfg.backend
-            || self.hotkey_draft.is_some()
+    /// The status banner to render in `section`, when the last change that
+    /// could not be applied was attempted there.
+    pub fn status_for(&self, section: SettingsSection) -> Option<&SettingsStatus> {
+        self.status
+            .as_ref()
+            .filter(|status| status.section == section)
     }
 }
 
@@ -1070,22 +1054,47 @@ pub fn step_chip<M: 'static>(
 /// three actions.
 pub fn model_panel<M: Clone + 'static>(
     app: &App,
-    entry: &'static ModelEntry,
+    selection: Selection,
     verified: bool,
     download: M,
     cancel: M,
     retry: M,
 ) -> Element<'static, M> {
-    let path = models::path_for(entry).ok();
+    let size_label = models::human_size(selection.artifact.size_bytes);
+    let path = models::path_for(selection.artifact).ok();
     let on_disk = path.as_ref().is_some_and(|path| path.exists());
     let downloading = app
         .download
         .as_ref()
-        .filter(|state| state.entry.id == entry.id);
+        .filter(|state| state.selection.artifact.id == selection.artifact.id);
+    // FR-006/SC-008: while one download runs, every other card's action is
+    // unavailable — the running card keeps its own cancel/retry.
+    let busy_elsewhere = app.download.as_ref().is_some_and(|state| {
+        state.is_running() && state.selection.artifact.id != selection.artifact.id
+    });
 
     if let Some(state) = downloading
         && state.is_running()
     {
+        if state.verifying {
+            // The artifact is on disk: this run checks the SHA-256 and only
+            // starts a transfer when the file fails that check (FR-003).
+            return card(
+                iced::widget::column![
+                    strong(format!("Verifying the model — {size_label} (SHA-256)")),
+                    iced::widget::row![
+                        muted("No download — a transfer only starts if the check fails."),
+                        button("Cancel")
+                            .style(style::secondary_button)
+                            .on_press(cancel),
+                    ]
+                    .spacing(metrics::SPACE_MD)
+                    .align_y(iced::Alignment::Center),
+                ]
+                .spacing(metrics::SPACE_MD),
+            );
+        }
+
         let row = iced::widget::row![
             progress_bar(0.0..=100.0, state.percent())
                 .length(Length::Fill)
@@ -1102,14 +1111,8 @@ pub fn model_panel<M: Clone + 'static>(
         .align_y(iced::Alignment::Center);
 
         return card(
-            iced::widget::column![
-                strong(format!(
-                    "Downloading the model — {}",
-                    entry.approx_size_label
-                )),
-                row,
-            ]
-            .spacing(metrics::SPACE_MD),
+            iced::widget::column![strong(format!("Downloading the model — {size_label}")), row,]
+                .spacing(metrics::SPACE_MD),
         );
     }
 
@@ -1120,9 +1123,7 @@ pub fn model_panel<M: Clone + 'static>(
             iced::widget::column![
                 banner(error.clone(), Tone::Error),
                 iced::widget::row![
-                    button("Retry")
-                        .style(style::secondary_button)
-                        .on_press(retry),
+                    action_button("Retry", retry, busy_elsewhere, style::secondary_button),
                     muted("The partial download is kept and resumed."),
                 ]
                 .spacing(metrics::SPACE_MD)
@@ -1145,10 +1146,7 @@ pub fn model_panel<M: Clone + 'static>(
     } else {
         (
             banner(
-                format!(
-                    "Not downloaded yet — {} to download",
-                    entry.approx_size_label
-                ),
+                format!("Not downloaded yet — {size_label} to download"),
                 Tone::Warning,
             ),
             "Download",
@@ -1158,15 +1156,32 @@ pub fn model_panel<M: Clone + 'static>(
     card(
         iced::widget::column![
             status,
-            iced::widget::row![
-                button(action)
-                    .style(style::primary_button)
-                    .on_press(download)
-            ]
+            iced::widget::row![action_button(
+                action,
+                download,
+                busy_elsewhere,
+                style::primary_button
+            )]
             .spacing(metrics::SPACE_SM),
         ]
         .spacing(metrics::SPACE_MD),
     )
+}
+
+/// The action of a [`model_panel`], rendered without an `on_press` while another
+/// download occupies the pipeline (FR-006/SC-008).
+fn action_button<M: Clone + 'static>(
+    label: &'static str,
+    message: M,
+    disabled: bool,
+    style: fn(&Theme, button::Status) -> button::Style,
+) -> Element<'static, M> {
+    let button = button(label).style(style);
+    if disabled {
+        button.into()
+    } else {
+        button.on_press(message).into()
+    }
 }
 
 /// One system-check row: status, detail and remediation (FR-014).
@@ -1205,7 +1220,6 @@ pub fn check_row<M: 'static>(check: &Check) -> Element<'static, M> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::CATALOG;
 
     fn physical(code: key::Code) -> key::Physical {
         key::Physical::Code(code)
@@ -1271,24 +1285,25 @@ mod tests {
     }
 
     #[test]
-    fn conflict_warning_blocks_german_for_the_english_model() {
-        let english = CATALOG
-            .iter()
-            .find(|entry| !entry.multilingual)
-            .expect("the catalog has an English-only entry");
-        let multilingual = CATALOG
-            .iter()
-            .find(|entry| entry.multilingual)
-            .expect("the catalog has a multilingual entry");
+    fn language_warning_names_the_mismatch_without_changing_the_selection() {
+        let english = model_catalog::artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
+        let german =
+            model_catalog::artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("offered");
 
         assert_eq!(
-            language_conflict(english, Language::DeDe),
+            language_warning(english, Language::DeDe),
             Some("The English-only model cannot transcribe German — choose a multilingual model.")
         );
-        assert!(language_conflict(english, Language::Auto).is_some());
-        assert_eq!(language_conflict(english, Language::EnUs), None);
-        assert_eq!(language_conflict(multilingual, Language::DeDe), None);
-        assert_eq!(language_conflict(multilingual, Language::Auto), None);
+        // Auto-detect fits every variant: the model picks the language itself.
+        assert_eq!(language_warning(english, Language::Auto), None);
+        assert_eq!(language_warning(english, Language::EnUs), None);
+        assert_eq!(language_warning(german, Language::DeDe), None);
+        assert_eq!(language_warning(german, Language::Auto), None);
+
+        // A warning is informational: the selection it describes stays valid and
+        // the warning never replaces it.
+        assert_eq!(english.variant.id, "moonshine-streaming-tiny");
+        assert!(model_catalog::artifact(english.artifact.id).is_some());
     }
 
     #[test]
@@ -1304,17 +1319,5 @@ mod tests {
             Step::ALL.map(Step::title),
             ["Model", "Language", "Key binding", "System check"]
         );
-    }
-
-    #[test]
-    fn settings_effective_hotkey_prefers_the_draft() {
-        let cfg = Config::default();
-        let mut settings = SettingsUi::from_config(&cfg);
-        assert_eq!(settings.effective_hotkey(), cfg.hotkey);
-        assert!(!settings.dirty(&cfg));
-
-        settings.hotkey_draft = Some("CTRL+SHIFT+D".to_owned());
-        assert_eq!(settings.effective_hotkey(), "CTRL+SHIFT+D");
-        assert!(settings.dirty(&cfg));
     }
 }

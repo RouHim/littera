@@ -67,9 +67,6 @@ pub enum BackendPreference {
 }
 
 impl BackendPreference {
-    /// Every variant, in UI order.
-    pub const ALL: [BackendPreference; 3] = [Self::Auto, Self::Vulkan, Self::Cpu];
-
     /// The stable token used in the config file.
     pub const fn label(self) -> &'static str {
         match self {
@@ -104,7 +101,7 @@ impl HotkeySource {
 #[serde(default)]
 pub struct Config {
     pub onboarding_complete: bool,
-    /// Catalog id from [`crate::models::CATALOG`].
+    /// Catalog id from [`crate::model_catalog`].
     pub model: String,
     pub language: Language,
     /// Canonical chord literal, e.g. `CTRL+SUPER` (see [`crate::hotkey::DEFAULT_CHORD`]).
@@ -120,7 +117,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             onboarding_complete: false,
-            model: crate::models::DEFAULT_MODEL_ID.to_owned(),
+            model: crate::model_catalog::DEFAULT_ARTIFACT_ID.to_owned(),
             language: Language::Auto,
             hotkey: crate::hotkey::DEFAULT_CHORD.to_owned(),
             hotkey_source: None,
@@ -277,7 +274,7 @@ mod tests {
     #[test]
     fn default_uses_sibling_module_literals() {
         let cfg = Config::default();
-        assert_eq!(cfg.model, crate::models::DEFAULT_MODEL_ID);
+        assert_eq!(cfg.model, crate::model_catalog::DEFAULT_ARTIFACT_ID);
         assert_eq!(cfg.hotkey, crate::hotkey::DEFAULT_CHORD);
         assert_eq!(cfg.language, Language::Auto);
         assert_eq!(cfg.backend, BackendPreference::Auto);
@@ -329,7 +326,6 @@ mod tests {
         ];
 
         assert_eq!(Language::ALL.len(), languages.len());
-        assert_eq!(BackendPreference::ALL.len(), backends.len());
 
         let mut cfg = Config::default();
         for (language, token) in languages {
@@ -405,7 +401,7 @@ mod tests {
         let path = temp_config_path("save");
         let cfg = Config {
             onboarding_complete: true,
-            model: crate::models::DEFAULT_MODEL_ID.to_owned(),
+            model: crate::model_catalog::DEFAULT_ARTIFACT_ID.to_owned(),
             language: Language::EnUs,
             hotkey: crate::hotkey::DEFAULT_CHORD.to_owned(),
             hotkey_source: Some(HotkeySource::Portal),

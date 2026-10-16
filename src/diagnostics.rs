@@ -1,7 +1,7 @@
 //! FR-014 / FR-022 environment checks.
 //!
 //! The same probe results feed three surfaces: the onboarding "System check" step,
-//! the settings diagnostics pane and `lingua --diagnostics`. Every check is a pure
+//! the startup problem notice and `lingua --diagnostics`. Every check is a pure
 //! formatter over values gathered elsewhere, so a failure reads identically in all
 //! three places and can be unit-tested without any hardware or session.
 
@@ -68,6 +68,9 @@ impl Default for State {
 /// Hotkey capability: the mechanism that actually holds the chord, or the reason
 /// nothing could be bound. `device_ok` is `hotkey_device::available()` — whether
 /// the read-only evdev listener found a keyboard at all.
+///
+/// The failure's own remediation is preferred: a chord the parser rejects needs
+/// a different cure than unreadable input devices (FR-014).
 pub fn hotkey_check(
     binding: Option<&Binding>,
     error: Option<&BindError>,
@@ -82,16 +85,25 @@ pub fn hotkey_check(
         };
     }
 
-    let detail = match (error, device_ok) {
-        (Some(error), _) => error.detail.clone(),
-        (None, true) => "no dictation shortcut is bound".to_owned(),
-        (None, false) => hotkey_device::unreadable_detail(),
+    let (detail, remediation) = match (error, device_ok) {
+        (Some(error), _) if !error.remediation.is_empty() => {
+            (error.detail.clone(), error.remediation.clone())
+        }
+        (Some(error), _) => (error.detail.clone(), REMEDIATION_HOTKEY.to_owned()),
+        (None, true) => (
+            "no dictation shortcut is bound".to_owned(),
+            REMEDIATION_HOTKEY.to_owned(),
+        ),
+        (None, false) => (
+            hotkey_device::unreadable_detail(),
+            REMEDIATION_HOTKEY.to_owned(),
+        ),
     };
     Check {
         name: NAME_HOTKEY,
         ok: false,
         detail,
-        remediation: Some(REMEDIATION_HOTKEY.to_owned()),
+        remediation: Some(remediation),
     }
 }
 
@@ -366,12 +378,13 @@ mod tests {
     }
 
     #[test]
-    fn hotkey_check_error_is_reported_with_input_group_remediation() {
-        let error = BindError::from_parts(
+    fn hotkey_check_error_carries_the_remediation_of_its_cause() {
+        // Access failure: the error's own input-group remedy is surfaced.
+        let access = BindError::from_parts(
             "no shortcut portal and /dev/input/event* not readable",
-            "usermod placeholder",
+            "sudo usermod -aG input $USER && log out and back in",
         );
-        let check = hotkey_check(None, Some(&error), false);
+        let check = hotkey_check(None, Some(&access), false);
 
         assert_eq!(check.name, "hotkey access");
         assert!(!check.ok);
@@ -380,6 +393,24 @@ mod tests {
             "no shortcut portal and /dev/input/event* not readable"
         );
         assert_eq!(check.remediation.as_deref(), Some(REMEDIATION_HOTKEY));
+
+        // Chord typo: the input-group command would not fix it, so the parser's
+        // remedy must be the one shown.
+        let typo = BindError::from_parts(
+            "unsupported chord token 'FOO'",
+            "enter a chord like CTRL+SUPER, CTRL+ALT+A or SUPER+SPACE in settings",
+        );
+        assert_eq!(
+            hotkey_check(None, Some(&typo), true).remediation.as_deref(),
+            Some("enter a chord like CTRL+SUPER, CTRL+ALT+A or SUPER+SPACE in settings")
+        );
+
+        // An error without a remedy falls back to the access command.
+        let bare = BindError::from_parts("broken", "");
+        assert_eq!(
+            hotkey_check(None, Some(&bare), true).remediation.as_deref(),
+            Some(REMEDIATION_HOTKEY)
+        );
     }
 
     #[test]

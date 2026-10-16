@@ -24,7 +24,7 @@
 
 ## Architecture & Data Flow
 
-Flat crate: 23 `.rs` files directly in `src/`, every module declared at the crate root (`src/main.rs:9-30`) — no nested module trees (spec FR-021). Layers: **CLI/daemon (`main.rs`)** → **`app` (state machine + wiring)** → **iced surfaces (`ui`, `ui_onboarding`, `ui_settings`)**; platform adapters `audio`, `engine` (with `stream_lease` owning the session/stream borrow), `hotkey{,_device,_portal}`, `clipboard`, `inserter`, `overlay{,_render,_wayland,_x11}`, `tray`, `ipc`; infrastructure `config`, `models`, `diagnostics`, `logging`.
+Flat crate: 25 `.rs` files directly in `src/`, every module declared at the crate root (`src/main.rs:9-31`) — no nested module trees (spec FR-021). Layers: **CLI/daemon (`main.rs`)** → **`app` (state machine + wiring)** → **iced surfaces (`ui`, `ui_onboarding`, `ui_settings`, `ui_problems`)**; platform adapters `audio`, `engine` (with `stream_lease` owning the session/stream borrow), `hotkey{,_device,_portal}`, `clipboard`, `inserter`, `overlay{,_render,_wayland,_x11}`, `tray`, `ipc`; infrastructure `config`, `model_catalog` (the bundled, versioned snapshot of the `transcribe.cpp` catalog), `models` (verified downloads), `diagnostics`, `logging`.
 
 ```mermaid
 flowchart LR
@@ -101,6 +101,8 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 - `MIN_HOLD = 300 ms` (tap vs hold-to-talk), 5-minute cap, 100 ms partial throttle, `PASTE_CHORD_HOLD = 25 ms`, 2 s clipboard confirm timeout — all pinned by tests.
 - The only `unsafe` in the tree is `src/stream_lease.rs` (two blocks: `&'static mut Session` plus `mem::transmute` to `Stream<'static>`). It is safe for three reasons that live *only* in that module: `session` is a `Box` (stable address), `_session` is declared after `stream` (drop order), and both fields are private, so nothing outside can touch the session while the stream is alive. Keep it that way — do not unbox the session, reorder the fields, expose an accessor, or open a stream anywhere else.
 - X11 overlay properties must be set **before the first `map_window`** (`src/overlay_x11.rs:1-23`).
+- The engine's language hint must be spelled exactly as the loaded GGUF advertises the language (the C API refuses anything else, in `transcribe_run` *and* `transcribe_stream_begin`): `model_catalog::language_hint` picks `en-US`/`de-DE` for Nemotron 3.5, the bare `en`/`de` for Voxtral and the English-only variants, and `None` for a language the variant does not advertise (warn, run without a hint — FR-011). Never invent a hint spelling.
+- The Parakeet stream extension is attached only after probing `Model::accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM)` (`stream_extension`, `src/engine.rs`): the kind is a per-variant property (cache-aware vs chunked-attention vs neither), and an unaccepted kind fails `transcribe_stream_begin`. A variant that accepts the kind but refuses the requested lookahead falls back to its own default instead of losing the dictation.
 - The engine keeps `keep_special_tags = true` (`run_options_for`, `src/engine.rs`) and removes the model's `<…>` tags itself via `strip_language_tags` before the text is displayed, copied or typed — that is what makes the *detected* language reachable (Spec: Dictation session, "the language actually used"). Never let a tag reach the overlay, the clipboard or `/dev/uinput`, and never turn `keep_special_tags` off without providing the language another way.
 
 ## Important Files
@@ -117,9 +119,10 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 | `src/clipboard.rs` | In-process selection ownership: `zwlr_data_control_v1` → `ext_data_control_v1` → X11 `CLIPBOARD` (XWayland bridge) → core `wl_data_device`; one thread each via `calloop` |
 | `src/inserter.rs` | `TextInserter` trait, `UinputInserter` (Ctrl+V via `/dev/uinput`), `ClipboardOnlyInserter` fallback, `InsertOutcome` |
 | `src/overlay.rs` / `overlay_render.rs` / `overlay_wayland.rs` / `overlay_x11.rs` | Presenter trait + backend probe/override; shared tiny-skia/cosmic-text frame render; layer-shell thread; X11 notification window thread |
-| `src/ui.rs` / `ui_onboarding.rs` / `ui_settings.rs` | Shared iced vocabulary (messages, `palette`/`metrics`/`style` design tokens, widget helpers, `ChordCapture`, `Step`/`Section`), onboarding, settings (+ config persistence and live reload) |
+|`src/ui.rs` / `ui_onboarding.rs` / `ui_settings.rs` / `ui_problems.rs`|Shared iced vocabulary (messages, `palette`/`metrics`/`style` design tokens, widget helpers, `ChordCapture`, `Step`), onboarding, settings (autosave — every edit applies immediately; config persistence and live reload), startup problem notice (FR-014)|
 | `src/config.rs` | `Config`, `Language`, `BackendPreference`, `HotkeySource`, `SharedConfig = Arc<RwLock<Config>>`, atomic TOML save, XDG paths |
-| `src/models.rs` | `CATALOG` (3 pinned GGUF entries: size + SHA-256 + HF commit URL), `path_for`, resumable verified `ensure` |
+| `src/model_catalog.rs` | Bundled catalog snapshot: 8 streaming variants × 23 artifacts (size + SHA-256 + commit-pinned HF URL), ratings (accuracy/speed), pure selection/language/rating helpers |
+| `src/models.rs` | `path_for`, resumable verified `ensure` (`<file>.part` + `Range` + SHA-256 + free-space gate) for a `model_catalog::Artifact` |
 | `src/ipc.rs` / `tray.rs` / `diagnostics.rs` / `logging.rs` | Single-instance socket + JSON-line codec; ksni tray; the four system checks; `tracing-subscriber` init |
 | `build.rs` | Emits `-lcblas` when a `cblas.h` exists and `CBLAS_NO_LINK` is unset (transcribe-cpp-sys only names `libblas`); no-op off Linux |
 | `README.md` | Operations reference: link/`dlopen` tables, permission matrix, build deps, flags, behaviour, verification commands |
@@ -136,7 +139,7 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 
 ## Testing & QA
 
-- All tests are **inline `#[cfg(test)] mod tests` blocks at the end of the file** (18 of 23 modules): 144 `#[test]` fns (the count drifts as work lands), 4 `#[ignore]`. No `tests/`, no test fixtures at all, no dev-dependencies, no async runtime in tests.
+- All tests are **inline `#[cfg(test)] mod tests` blocks at the end of the file** (20 of 25 modules): 174 `#[test]` fns (the count drifts as work lands), 4 `#[ignore]`. No `tests/`, no test fixtures at all, no dev-dependencies, no async runtime in tests.
 - Run: `cargo test` (unit), `cargo test -- --ignored` (display-dependent smoke), single test via module path: `cargo test app::tests::hold_to_talk_stops_on_release -- --exact`, whole module: `cargo test config::tests`. No feature flags exist (`--features` fails), and there is no lib target, so doc tests do not apply.
 - Style to follow:
   - Descriptive snake_case sentence names, no `test_` prefix: `save_then_load_roundtrips_and_leaves_no_temp_file` (`src/config.rs:404`), `rejects_48k_stereo_wav_with_the_contract_literal` (`src/audio.rs:957`).
@@ -147,5 +150,5 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
   - Global-clipboard tests serialise on `pub(crate) static SELECTION_LOCK` (`src/clipboard.rs:1051`) — hold it in any new test that touches the selection.
   - `unwrap`/`expect` are fine in tests (allowed by the `cfg_attr` in `src/main.rs:7`).
 - The 4 `#[ignore]` tests are live smoke tests: X11 window properties (`src/overlay_x11.rs:1062`), layer-shell show/draw/hide (`src/overlay_wayland.rs:870`), and clipboard ownership/insertion (`src/clipboard.rs:1056`, `src/inserter.rs:209`, needs `wl-paste` for independent verification). The overlay two **silently pass** when `DISPLAY`/`WAYLAND_DISPLAY` is unset; only the clipboard two hard-fail without a session.
-- Coverage gaps to respect before widening scope: **no tests** in `logging.rs`, `ui_settings.rs`, `ui_onboarding.rs`, `hotkey_portal.rs`; **no coverage** of `models::ensure` (resume/tamper, SC-009), `ipc::serve`, tray runtime registration, iced `boot`/subscription wiring, real cpal capture, real ASR inference, and `build.rs`.
+- Coverage gaps to respect before widening scope: **no tests** in `logging.rs`, `ui_onboarding.rs`, `ui_problems.rs`, `hotkey_portal.rs`; **no coverage** of `models::ensure` (resume/tamper, SC-009), `ipc::serve`, tray runtime registration, iced `boot`/subscription wiring, real cpal capture, real ASR inference, and `build.rs`.
 - **No automated non-test verification exists** — for behavior changes, run the matching command from the quick reference (`--diagnostics`, `--audio-file samples/jfk.wav --print-transcript --latency`, or the real daemon) rather than trusting unit tests alone.

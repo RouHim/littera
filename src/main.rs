@@ -18,6 +18,7 @@ mod hotkey_portal;
 mod inserter;
 mod ipc;
 mod logging;
+mod model_catalog;
 mod models;
 mod overlay;
 mod overlay_render;
@@ -27,6 +28,7 @@ mod stream_lease;
 mod tray;
 mod ui;
 mod ui_onboarding;
+mod ui_problems;
 mod ui_settings;
 
 use std::io::Write;
@@ -150,6 +152,28 @@ fn diagnostics_cli() -> Result<()> {
         }
     }
 
+    // FR-022: the effective model, language and backend preference, so the one
+    // command answers support questions without the settings window.
+    let selection =
+        model_catalog::artifact(&config.model).unwrap_or_else(model_catalog::default_selection);
+    let model_path = models::path_for(selection.artifact)?;
+    emit(&format!(
+        "model: {} — {} ({})",
+        selection.artifact.id,
+        model_path.display(),
+        if model_path.exists() {
+            "on disk"
+        } else {
+            "not downloaded"
+        }
+    ));
+    emit(&format!(
+        "language: {} ({})",
+        config.language.label(),
+        config.language.display_name()
+    ));
+    emit(&format!("backend preference: {}", config.backend.label()));
+
     Ok(())
 }
 
@@ -160,8 +184,9 @@ fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<
     let duration = samples.len() as f32 / audio::TARGET_RATE as f32;
     tracing::info!(file = %path.display(), seconds = duration, "loaded wav for offline dictation");
 
-    let entry = models::entry(&config.model).unwrap_or_else(models::default_entry);
-    let model_path = models::path_for(entry)?;
+    let selection =
+        model_catalog::artifact(&config.model).unwrap_or_else(model_catalog::default_selection);
+    let model_path = models::path_for(selection.artifact)?;
     if !model_path.exists() {
         // Same behaviour as pressing the hotkey for the first time: fetch and
         // verify the artifact (FR-003), then continue with the file.
@@ -175,18 +200,18 @@ fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<
                 tracing::info!(received, total, "downloading model");
             });
         tracing::info!(
-            model = entry.id,
-            size = entry.approx_size_label,
+            model = selection.artifact.id,
+            size = models::human_size(selection.artifact.size_bytes),
             path = %model_path.display(),
             "downloading the model before transcribing"
         );
         runtime
-            .block_on(models::ensure(entry, cancel, progress))
+            .block_on(models::ensure(selection.artifact, cancel, progress))
             .context("downloading the model failed")?;
     }
 
     let (events_tx, events_rx) = std::sync::mpsc::channel();
-    let engine = engine::spawn(entry, model_path, config.backend, events_tx);
+    let engine = engine::spawn(selection, model_path, config.backend, events_tx);
 
     let clipboard = clipboard::Clipboard::new().context("owning the Wayland clipboard failed")?;
     let clipboard = std::sync::Arc::new(clipboard);
@@ -256,13 +281,17 @@ fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<
             }
             Ok(engine::EngineEvent::Failed { message }) => bail!("{message}"),
             Ok(_) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                bail!("the engine produced no final transcript within 60 s");
-            }
+            // A quiet window is not a failure: finalizing a long recording can
+            // take longer than the poll interval (Moonshine re-decodes its whole
+            // prefix), so only the deadline ends the wait.
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                 bail!("the engine worker stopped before producing a transcript");
             }
         }
+    }
+    if final_ms.is_none() {
+        bail!("the engine produced no final transcript within 60 s");
     }
 
     let outcome = inserter.insert(&transcript)?;
