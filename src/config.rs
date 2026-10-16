@@ -11,6 +11,10 @@ use std::sync::{Arc, RwLock};
 /// Application id: the XDG directory name and the single-instance/tray identifier.
 pub const APP_ID: &str = "lingua";
 
+/// The distinguished `input_device` value — and the meaning of an absent key: record from the
+/// microphone the system's audio layer currently designates (FR-001).
+pub const INPUT_DEVICE_SYSTEM: &str = "system";
+
 /// Transcription language hint. The model always gets an explicit language or none at all
 /// (`auto`), which is why [`Language::api_code`] is the only source of this value (FR-007).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -111,6 +115,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hotkey_source: Option<HotkeySource>,
     pub backend: BackendPreference,
+    /// Capture device for dictation (FR-001/FR-003): [`INPUT_DEVICE_SYSTEM`] follows the system
+    /// default, any other value is a backend device identifier (`<host>:<device>`). While it is
+    /// the default the key is not written at all.
+    #[serde(skip_serializing_if = "is_system_input_device")]
+    pub input_device: String,
 }
 
 impl Default for Config {
@@ -122,6 +131,7 @@ impl Default for Config {
             hotkey: crate::hotkey::DEFAULT_CHORD.to_owned(),
             hotkey_source: None,
             backend: BackendPreference::Auto,
+            input_device: INPUT_DEVICE_SYSTEM.to_owned(),
         }
     }
 }
@@ -131,6 +141,11 @@ impl Config {
     pub fn path() -> Result<PathBuf> {
         let base = dirs::config_dir().ok_or_else(error_no_config_dir)?;
         Ok(base.join(APP_ID).join("config.toml"))
+    }
+
+    /// The capture device the next recording opens, or `None` for the system default (FR-010).
+    pub fn capture_device(&self) -> Option<&str> {
+        (!is_system_input_device(&self.input_device)).then_some(self.input_device.as_str())
     }
 
     /// Load the settings. A missing file is not an error: it yields the defaults. A file that is
@@ -202,6 +217,11 @@ impl Config {
 /// panicked while holding the lock.
 fn warn_poisoned_lock() {
     tracing::warn!("settings lock poisoned by a panicking writer; reusing the recovered value");
+}
+
+/// Whether `value` is the distinguished [`INPUT_DEVICE_SYSTEM`] state.
+fn is_system_input_device(value: &str) -> bool {
+    value == INPUT_DEVICE_SYSTEM
 }
 
 /// The config directory is unknown when neither `$XDG_CONFIG_HOME` nor `$HOME` is set (FR-016).
@@ -280,6 +300,34 @@ mod tests {
         assert_eq!(cfg.backend, BackendPreference::Auto);
         assert!(!cfg.onboarding_complete);
         assert_eq!(cfg.hotkey_source, None);
+        assert_eq!(cfg.input_device, INPUT_DEVICE_SYSTEM);
+        assert_eq!(cfg.capture_device(), None);
+    }
+
+    #[test]
+    fn system_input_device_is_the_frozen_literal_default() {
+        assert_eq!(INPUT_DEVICE_SYSTEM, "system");
+    }
+
+    #[test]
+    fn system_input_device_is_omitted_from_the_file() {
+        let text = toml::to_string(&Config::default()).expect("serialize default config");
+        assert!(!text.contains("input_device"), "{text}");
+        let back: Config = toml::from_str(&text).expect("deserialize default config");
+        assert_eq!(back, Config::default());
+    }
+
+    #[test]
+    fn configured_input_device_roundtrips_through_toml() {
+        let cfg = Config {
+            input_device: "alsa:pipewire".to_owned(),
+            ..Config::default()
+        };
+        let text = toml::to_string(&cfg).expect("serialize config");
+        assert!(text.contains("input_device = \"alsa:pipewire\""), "{text}");
+        let back: Config = toml::from_str(&text).expect("deserialize config");
+        assert_eq!(back, cfg);
+        assert_eq!(back.capture_device(), Some("alsa:pipewire"));
     }
 
     #[test]
@@ -291,11 +339,13 @@ mod tests {
             hotkey: "CTRL+SHIFT+D".to_owned(),
             hotkey_source: Some(HotkeySource::Device),
             backend: BackendPreference::Cpu,
+            input_device: "alsa:default".to_owned(),
         };
         let text = toml::to_string(&cfg).expect("serialize config");
         assert!(text.contains("hotkey_source = \"device\""), "{text}");
         assert!(text.contains("language = \"de-DE\""), "{text}");
         assert!(text.contains("backend = \"cpu\""), "{text}");
+        assert!(text.contains("input_device = \"alsa:default\""), "{text}");
         let back: Config = toml::from_str(&text).expect("deserialize config");
         assert_eq!(cfg, back);
     }
@@ -393,6 +443,7 @@ mod tests {
         assert_eq!(cfg.hotkey, crate::hotkey::DEFAULT_CHORD);
         assert_eq!(cfg.language, Language::Auto);
         assert_eq!(cfg.backend, BackendPreference::Auto);
+        assert_eq!(cfg.input_device, INPUT_DEVICE_SYSTEM);
         let _ = fs::remove_file(&path);
     }
 
@@ -406,6 +457,7 @@ mod tests {
             hotkey: crate::hotkey::DEFAULT_CHORD.to_owned(),
             hotkey_source: Some(HotkeySource::Portal),
             backend: BackendPreference::Vulkan,
+            input_device: "alsa:pipewire".to_owned(),
         };
         cfg.save_to(&path).expect("save config");
         assert_eq!(Config::load_from(&path).expect("reload config"), cfg);

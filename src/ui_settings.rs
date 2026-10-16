@@ -19,7 +19,8 @@ use iced::widget::{Space, button, column, progress_bar, radio, row, scrollable, 
 use iced::{Element, Font, Length, Task};
 
 use crate::app::App;
-use crate::config::{self, Language};
+use crate::audio;
+use crate::config::{self, Config, Language};
 use crate::engine::EngineInfo;
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
@@ -46,6 +47,8 @@ pub enum Action {
     SetMaxSize(SizeFilter),
     SetSort(SortOrder),
     SelectLanguage(Language),
+    /// Pick the capture device: its `alsa:…` identifier, or `system` (FR-007).
+    SelectInputDevice(String),
     BindViaPortal,
     StartCapture,
     OpenModelDir,
@@ -145,6 +148,13 @@ impl SortOrder {
 /// The indicator bars are reference marks, not progress: thin and short.
 const INDICATOR_BAR_WIDTH: f32 = 120.0;
 const INDICATOR_BAR_HEIGHT: f32 = 4.0;
+
+/// The note under a configured device that cannot be opened right now (FR-006).
+const CURRENTLY_UNAVAILABLE: &str = "currently unavailable";
+/// The label of a hand-edited device value that is empty (spec Edge Cases).
+const EMPTY_DEVICE_LABEL: &str = "(empty)";
+/// The section's progress note while the device list is being built (FR-009).
+const SCANNING_INPUT_DEVICES: &str = "Scanning input devices…";
 
 /// Session-only list state: the filters, the sorting, the expanded detail and
 /// the quants the user picked on cards that are not active.
@@ -286,6 +296,7 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
         Action::SetMaxSize(filter) => app.settings.list.max_size = filter,
         Action::SetSort(order) => app.settings.list.sort = order,
         Action::SelectLanguage(language) => return select_language(app, language),
+        Action::SelectInputDevice(device) => return select_input_device(app, device),
         Action::OpenModelDir => return app.open_model_dir(),
         // The portal binds the configured chord; the compositor's own dialog
         // reports which trigger it actually registered (Scenario 1.3).
@@ -349,6 +360,27 @@ fn select_language(app: &mut App, language: Language) -> Vec<Task<Message>> {
 
     app.settings.status = None;
     app.refresh_checks();
+    Vec::new()
+}
+
+/// Persist the chosen capture device (FR-007): a plain config write, so the running recording
+/// keeps its device and the next one opens the new one — nothing is re-bound or restarted.
+fn select_input_device(app: &mut App, device: String) -> Vec<Task<Message>> {
+    if app.cfg.snapshot().input_device == device {
+        return Vec::new();
+    }
+
+    if let Err(error) = app.cfg.update(|cfg| cfg.input_device = device) {
+        tracing::error!(%error, "saving the input device selection failed");
+        app.settings.status = Some(ui::SettingsStatus {
+            text: format!("Saving failed: {error:#}"),
+            tone: Tone::Error,
+            section: ui::SettingsSection::Microphone,
+        });
+        return Vec::new();
+    }
+
+    app.settings.status = None;
     Vec::new()
 }
 
@@ -496,11 +528,131 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     column![
         model_section,
         column![ui::heading::<Action>("Language"), language_card].spacing(metrics::SPACE_MD),
+        column![ui::heading::<Action>("Microphone"), microphone_section(app)]
+            .spacing(metrics::SPACE_MD),
         column![ui::heading::<Action>("Hotkey"), hotkey_card].spacing(metrics::SPACE_MD),
         column![ui::heading::<Action>("Storage"), ui::card(storage)].spacing(metrics::SPACE_MD),
     ]
     .spacing(metrics::SPACE_XXL)
     .into()
+}
+
+/// One row of the Microphone section (FR-004/FR-006): the value the config stores when it is
+/// picked, plus the two lines it renders.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputDeviceRow {
+    /// `system` or a backend device identifier — exactly what [`Action::SelectInputDevice`] carries.
+    pub id: String,
+    /// First line: the device name, or the identifier itself when the device is unknown.
+    pub label: String,
+    /// Second line: the technical identifier; `None` when the label already is it.
+    pub identifier: Option<String>,
+    /// A note such as [`CURRENTLY_UNAVAILABLE`]; `None` for a usable device.
+    pub note: Option<&'static str>,
+}
+
+/// The rows the Microphone section renders: "System default" first (FR-004), then every device
+/// that is openable right now, then — while the configured value is not among them — the
+/// configured value itself, marked [`CURRENTLY_UNAVAILABLE`] (FR-006). `devices` is `None` while
+/// the enumeration runs; the configured value is never substituted by a different entry.
+pub fn input_device_rows(
+    config: &Config,
+    devices: Option<&[audio::InputDevice]>,
+) -> Vec<InputDeviceRow> {
+    let mut rows = vec![InputDeviceRow {
+        id: config::INPUT_DEVICE_SYSTEM.to_owned(),
+        label: "System default".to_owned(),
+        identifier: None,
+        note: None,
+    }];
+
+    let Some(devices) = devices else {
+        return rows;
+    };
+
+    let mut configured_is_selectable = config.input_device == config::INPUT_DEVICE_SYSTEM;
+    for device in devices {
+        if device.id == config.input_device {
+            configured_is_selectable = true;
+        }
+        rows.push(InputDeviceRow {
+            id: device.id.clone(),
+            label: device.name.clone(),
+            identifier: Some(device.id.clone()),
+            note: None,
+        });
+    }
+    if !configured_is_selectable {
+        let label = if config.input_device.is_empty() {
+            EMPTY_DEVICE_LABEL.to_owned()
+        } else {
+            config.input_device.clone()
+        };
+        rows.push(InputDeviceRow {
+            id: config.input_device.clone(),
+            label,
+            identifier: None,
+            note: Some(CURRENTLY_UNAVAILABLE),
+        });
+    }
+    rows
+}
+
+/// The Microphone section (FR-004/FR-006); every row click autosaves the choice (FR-007).
+fn microphone_section(app: &App) -> Element<'static, Action> {
+    let config = app.cfg.snapshot();
+    let rows = input_device_rows(&config, app.settings.input_devices.as_deref());
+
+    // Not `list`: that name is taken by the model-card renderer in this module.
+    let mut entries = column![].spacing(metrics::SPACE_SM);
+    for row in rows {
+        let selected = row.id == config.input_device;
+        entries = entries.push(input_device_row(row, selected));
+    }
+    if app.settings.input_devices.is_none() {
+        entries = entries.push(ui::banner(SCANNING_INPUT_DEVICES, Tone::Info));
+    }
+    if let Some(status) = app.settings.status_for(ui::SettingsSection::Microphone) {
+        entries = entries.push(ui::banner(status.text.clone(), status.tone));
+    }
+
+    ui::card(entries)
+}
+
+/// One row: a full-width button, so the whole row is the click target. iced's `radio` cannot be
+/// used here — it needs a `Copy` value and a single-line label, and a device row shows a name and
+/// an identifier. The selected row carries the accent fill (`style::primary_button`), the same
+/// vocabulary as the active model card.
+fn input_device_row(row: InputDeviceRow, selected: bool) -> Element<'static, Action> {
+    let (name_color, detail_color) = if selected {
+        (ui::palette::ON_ACCENT, ui::palette::ON_ACCENT)
+    } else {
+        (ui::palette::TEXT, ui::palette::MUTED)
+    };
+
+    let mut content = column![text(row.label).size(metrics::TEXT_BODY).color(name_color)]
+        .spacing(metrics::SPACE_XS);
+    if let Some(identifier) = row.identifier {
+        content = content.push(
+            text(identifier)
+                .size(metrics::TEXT_CAPTION)
+                .font(Font::MONOSPACE)
+                .color(detail_color),
+        );
+    }
+    if let Some(note) = row.note {
+        content = content.push(text(note).size(metrics::TEXT_CAPTION).color(detail_color));
+    }
+
+    let button = button(content)
+        .width(Length::Fill)
+        .padding(metrics::BUTTON_PADDING);
+    let button = if selected {
+        button.style(style::primary_button)
+    } else {
+        button.style(style::secondary_button)
+    };
+    button.on_press(Action::SelectInputDevice(row.id)).into()
 }
 
 /// Label of the backend hint below the model list (FR-005/FR-014).
@@ -1331,5 +1483,90 @@ mod tests {
                 Tone::Error
             ))
         );
+    }
+
+    fn device(id: &str, name: &str) -> audio::InputDevice {
+        audio::InputDevice {
+            id: id.to_owned(),
+            name: name.to_owned(),
+        }
+    }
+
+    #[test]
+    fn system_default_row_leads_the_list() {
+        let devices = [
+            device("alsa:pipewire", "PipeWire"),
+            device("alsa:usb", "USB Mic"),
+        ];
+        let rows = input_device_rows(&Config::default(), Some(&devices));
+
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].id, config::INPUT_DEVICE_SYSTEM);
+        assert_eq!(rows[0].label, "System default");
+        assert_eq!(rows[0].identifier, None);
+        assert_eq!(rows[0].note, None);
+        for (row, device) in rows[1..].iter().zip(&devices) {
+            assert_eq!(row.id, device.id);
+            assert_eq!(row.identifier, Some(device.id.clone()));
+            assert_eq!(row.note, None);
+        }
+    }
+
+    #[test]
+    fn while_the_list_is_loading_only_the_system_default_is_visible() {
+        let rows = input_device_rows(&Config::default(), None);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, config::INPUT_DEVICE_SYSTEM);
+    }
+
+    #[test]
+    fn a_configured_device_that_is_listed_is_not_duplicated() {
+        let config = Config {
+            input_device: "alsa:pipewire".to_owned(),
+            ..Config::default()
+        };
+        let devices = [device("alsa:pipewire", "PipeWire")];
+        let rows = input_device_rows(&config, Some(&devices));
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(
+            rows.iter().filter(|row| row.id == "alsa:pipewire").count(),
+            1
+        );
+        assert_eq!(rows[1].note, None);
+    }
+
+    #[test]
+    fn a_configured_device_that_is_missing_stays_visible_as_unavailable() {
+        let config = Config {
+            input_device: "alsa:headset".to_owned(),
+            ..Config::default()
+        };
+        let devices = [device("alsa:pipewire", "PipeWire")];
+        let rows = input_device_rows(&config, Some(&devices));
+
+        let last = rows.last().expect("the configured device row");
+        assert_eq!(last.id, "alsa:headset");
+        assert_eq!(last.label, "alsa:headset");
+        assert_eq!(last.note, Some(CURRENTLY_UNAVAILABLE));
+        assert_eq!(
+            rows.iter().filter(|row| row.id == "alsa:headset").count(),
+            1
+        );
+    }
+
+    #[test]
+    fn an_empty_configured_device_gets_a_visible_label() {
+        let config = Config {
+            input_device: String::new(),
+            ..Config::default()
+        };
+        let none: Vec<audio::InputDevice> = Vec::new();
+        let rows = input_device_rows(&config, Some(&none));
+
+        let last = rows.last().expect("the configured device row");
+        assert_eq!(last.label, EMPTY_DEVICE_LABEL);
+        assert_eq!(last.note, Some(CURRENTLY_UNAVAILABLE));
+        assert!(rows[..rows.len() - 1].iter().all(|row| !row.id.is_empty()));
     }
 }

@@ -214,6 +214,14 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   model section names the compute backend the configured model runs on — the engine's
   report once a model is loaded (`Vulkan — <device>`), the boot-time device probe
   before that, marked `(expected)`; a CPU fallback keeps its reason on screen (FR-005).
+- The settings window's **Microphone** section lists `System default` first, then every
+  capture device the audio backend can open *at that moment* (name plus technical
+  identifier), and stores the pick in the `input_device` key; the list is rebuilt on every
+  visit to the window (no refresh control, no background watcher). A configured device that
+  is currently unavailable stays visible, marked `currently unavailable`, and a recording
+  that cannot resolve or open it transparently falls back to the system default — the
+  identifier and the cause go to the log, never to the UI. A recording in progress keeps
+  the device it started on.
 - The engine reads the language tag the model emits per segment (`<en-US>`, with
   `keep_special_tags` on) and strips it before anything user-visible sees the text, so
   FR-007 still holds: neither the overlay, nor the clipboard, nor the synthesized
@@ -234,6 +242,11 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   `att_context_right` would delay the first partial further, not earlier.
 - **Terminals** often paste with `Ctrl+Shift+V`; Lingua always sends `Ctrl+V`, so the
   clipboard path is the workaround.
+- **Microphone pinning under PipeWire**: the entries in the Microphone section follow the
+  ALSA device layer, so the PipeWire plugins (`alsa:default`, `alsa:pipewire`) record from
+  the system's current *default source*, and raw hardware PCMs are only offered while the
+  sound server does not hold them. Pinning one specific PipeWire source is done outside the
+  app (change the default source in WirePlumber/`wpctl`), not in the list.
 - A **listen-only device listener cannot suppress desktop bindings**, so a chord like
   the default `Ctrl+Super` may additionally trigger a desktop action. Pick a chord your
   desktop does not use, or use a compositor with the shortcut portal (KDE, GNOME 48+,

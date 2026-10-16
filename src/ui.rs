@@ -10,6 +10,7 @@ use iced::widget::{button, container, progress_bar, scrollable, text};
 use iced::{Background, Element, Font, Length, Padding, Theme, border, window};
 
 use crate::app::{App, AppEvent};
+use crate::audio;
 use crate::config::{Config, Language};
 use crate::diagnostics::Check;
 use crate::hotkey::{self, KeyToken, Modifier};
@@ -826,6 +827,8 @@ pub fn language_warning(selection: Selection, language: Language) -> Option<&'st
 pub enum SettingsSection {
     Model,
     Language,
+    /// The capture device used for dictation (FR-004/FR-006).
+    Microphone,
     Hotkey,
     Storage,
 }
@@ -849,6 +852,9 @@ pub struct SettingsUi {
     /// Filters, sorting and the expanded detail of the model list (FR-005);
     /// session-only, never persisted.
     pub list: crate::ui_settings::ListState,
+    /// The Microphone section's device list: `None` until the enumeration started when the
+    /// window opened has answered (FR-008/FR-009).
+    pub input_devices: Option<Vec<audio::InputDevice>>,
 }
 
 impl SettingsUi {

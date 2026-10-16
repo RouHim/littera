@@ -1,8 +1,10 @@
 //! Microphone capture, down-mixing, resampling and 100 ms chunking.
 //!
-//! [`start`] opens the default input device on a dedicated capture thread — a [`cpal::Stream`]
-//! is not `Sync`, so it never leaves that thread. The stream callback only copies its raw buffer
-//! into the capture thread; down-mixing, resampling to [`TARGET_RATE`], chunking and the `rms`
+//! [`start`] opens the configured input device — or the system default when none is configured
+//! (FR-001/FR-010) — on a dedicated capture thread — a [`cpal::Stream`] is not `Sync`, so it
+//! never leaves that thread. A configured device that cannot be resolved or opened is replaced
+//! by the system default (FR-011). The stream callback only copies its raw buffer into the
+//! capture thread; down-mixing, resampling to [`TARGET_RATE`], chunking and the `rms`
 //! calculation all happen there, and a single stop message tears the whole thing down.
 //!
 //! [`chunks`] is the same chunker for audio that is already 16 kHz mono (the `--audio-file`
@@ -16,7 +18,9 @@ use std::thread::JoinHandle;
 
 use anyhow::{Result, anyhow, bail};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{Data, Error as CpalError, InputCallbackInfo, SampleFormat, Stream};
+use cpal::{
+    Data, Device, DeviceId, Error as CpalError, Host, InputCallbackInfo, SampleFormat, Stream,
+};
 use rubato::audioadapter_buffers::direct::InterleavedSlice;
 use rubato::{FixedSync, Indexing, Resampler};
 
@@ -43,6 +47,52 @@ const WAV_FMT_MAX: u64 = 64;
 pub struct Chunk {
     pub samples: Vec<f32>,
     pub rms: f32,
+}
+
+/// One capture device the backend can open right now (FR-004/FR-005).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputDevice {
+    /// `cpal` device identifier, `<host>:<device>` (e.g. `alsa:default`); this is what the
+    /// config stores (FR-003).
+    pub id: String,
+    /// Human-readable device name.
+    pub name: String,
+}
+
+/// Enumerate the devices the audio backend can open for capture right now (FR-005).
+///
+/// Blocking: every candidate is opened once, because an ALSA hint without an IOID may work in
+/// either direction and only opening settles it. The open is exactly the first step the capture
+/// path performs, so a device that passes this probe cannot fail earlier than capture would.
+/// Callers run this off the UI thread. Sorted by name, so the order does not depend on the
+/// backend's enumeration order.
+pub fn input_devices() -> Vec<InputDevice> {
+    let host = cpal::default_host();
+    let candidates = match host.input_devices() {
+        Ok(devices) => devices,
+        Err(error) => {
+            tracing::warn!(%error, "enumerating the input devices failed");
+            return Vec::new();
+        }
+    };
+
+    let mut found: Vec<InputDevice> = candidates
+        .filter(|device| device.default_input_config().is_ok())
+        .filter_map(|device| {
+            let id = device.id().ok()?;
+            let name = device.description().ok()?.name().to_owned();
+            Some(InputDevice {
+                id: id.to_string(),
+                name,
+            })
+        })
+        .collect();
+    found.sort_by(|left, right| {
+        left.name
+            .cmp(&right.name)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    found
 }
 
 /// Loudness of `samples` in `0.0..=1.0`, used for the overlay level bar.
@@ -404,15 +454,17 @@ impl Drop for Capture {
     }
 }
 
-/// Start capturing the default input device, sending 100 ms 16 kHz mono chunks to `tx`.
-pub fn start(tx: Sender<Chunk>) -> Result<Capture> {
+/// Start capturing `device`, or the system default input device when it is `None`, sending
+/// 100 ms 16 kHz mono chunks to `tx` (FR-010/FR-011).
+pub fn start(tx: Sender<Chunk>, device: Option<&str>) -> Result<Capture> {
     let (control_tx, control_rx) = std::sync::mpsc::channel::<CaptureMsg>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<StartupReport>();
     let builder = std::thread::Builder::new();
     let builder = builder.name("lingua-capture".to_owned());
     // The stream callbacks send through their own handle; `Capture` keeps the other one.
     let callback_tx = control_tx.clone();
-    let body = move || capture_thread(control_rx, callback_tx, ready_tx, tx);
+    let selection = device.map(str::to_owned);
+    let body = move || capture_thread(control_rx, callback_tx, ready_tx, tx, selection);
     let spawned = builder.spawn(body);
     let thread = match spawned {
         Ok(thread) => thread,
@@ -443,15 +495,17 @@ pub fn start(tx: Sender<Chunk>) -> Result<Capture> {
     }
 }
 
-/// Opens the default input device, plays the stream until it is dropped, and pumps its audio
-/// through the [`Pipeline`]. Everything that is not `Sync` stays on this thread.
+/// Opens the configured input device (or the system default), plays the stream until it is
+/// dropped, and pumps its audio through the [`Pipeline`]. Everything that is not `Sync` stays on
+/// this thread.
 fn capture_thread(
     control: Receiver<CaptureMsg>,
     callback_tx: Sender<CaptureMsg>,
     ready: Sender<StartupReport>,
     tx: Sender<Chunk>,
+    selection: Option<String>,
 ) {
-    let setup = build_capture(callback_tx, tx);
+    let setup = build_capture(callback_tx, tx, selection.as_deref());
     let (stream, mut pipeline, rate_in, channels) = match setup {
         Ok(setup) => setup,
         Err(message) => {
@@ -492,13 +546,71 @@ fn capture_thread(
     drop(stream);
 }
 
-/// Open the default input stream. `callback_tx` goes to the stream callbacks; errors are the
-/// user-visible strings reported through the ready channel.
-fn build_capture(callback_tx: Sender<CaptureMsg>, tx: Sender<Chunk>) -> SetupResult {
+/// The label the default device carries in its error messages; the strings stay byte-identical.
+const DEFAULT_DEVICE_LABEL: &str = "the default input device";
+
+/// Open the configured input device, falling back to the system default when it cannot be
+/// resolved or opened (FR-010/FR-011). Only the default device's failures become the
+/// user-visible error string. `callback_tx` goes to the stream callbacks.
+fn build_capture(
+    callback_tx: Sender<CaptureMsg>,
+    tx: Sender<Chunk>,
+    device: Option<&str>,
+) -> SetupResult {
     let host = cpal::default_host();
+
+    if let Some(selection) = device {
+        match select_device(&host, selection) {
+            Ok(device) => match open_device(&device, selection, callback_tx.clone(), tx.clone()) {
+                Ok(setup) => {
+                    tracing::info!(
+                        device = selection,
+                        "capture started on the configured input device"
+                    );
+                    return Ok(setup);
+                }
+                Err(cause) => tracing::warn!(
+                    device = selection,
+                    cause,
+                    "the configured input device cannot be opened; using the system default"
+                ),
+            },
+            Err(cause) => tracing::warn!(
+                device = selection,
+                cause,
+                "the configured input device cannot be resolved; using the system default"
+            ),
+        }
+    }
+
     let Some(device) = host.default_input_device() else {
         return Err(NO_INPUT_DEVICE.to_owned());
     };
+    open_device(&device, DEFAULT_DEVICE_LABEL, callback_tx, tx)
+}
+
+/// The stored identifier as a device of the platform's audio host (FR-003).
+fn select_device(host: &Host, selection: &str) -> std::result::Result<Device, String> {
+    let Some(id) = parse_device_id(selection) else {
+        return Err(format!("not a device identifier: {selection}"));
+    };
+    host.device_by_id(&id)
+        .ok_or_else(|| format!("no input device with the identifier {selection}"))
+}
+
+/// The stored identifier as a [`DeviceId`] (`<host>:<device>`); `None` when it is malformed.
+fn parse_device_id(selection: &str) -> Option<DeviceId> {
+    selection.parse::<DeviceId>().ok()
+}
+
+/// Open one device: query its default input configuration, build the pipeline and start the
+/// stream. `label` names the device in the messages that can reach the user.
+fn open_device(
+    device: &Device,
+    label: &str,
+    callback_tx: Sender<CaptureMsg>,
+    tx: Sender<Chunk>,
+) -> SetupResult {
     let supported = match device.default_input_config() {
         Ok(supported) => supported,
         Err(err) => {
@@ -547,7 +659,7 @@ fn build_capture(callback_tx: Sender<CaptureMsg>, tx: Sender<Chunk>) -> SetupRes
     );
     let stream = match built {
         Ok(stream) => stream,
-        Err(err) => return Err(format!("cannot open the default input device: {err}")),
+        Err(err) => return Err(format!("cannot open {label}: {err}")),
     };
     let started = stream.play();
     if let Err(err) = started {
@@ -1053,5 +1165,16 @@ mod tests {
             err.to_string().contains("unsupported sample format"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn device_identifiers_are_the_cpal_device_id_strings() {
+        // FR-003: the stored value is cpal's `<host>:<device>` identifier and round-trips through it.
+        let id = parse_device_id("alsa:default").expect("`<host>:<device>` parses");
+        assert_eq!(id.to_string(), "alsa:default");
+
+        // The spec's hand-edited-value edge cases are rejected before anything is opened.
+        assert!(parse_device_id("").is_none());
+        assert!(parse_device_id("plughw:CARD=Generic").is_none());
     }
 }

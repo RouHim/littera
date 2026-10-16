@@ -59,6 +59,8 @@ pub enum AppEvent {
     HotkeyBound(Result<hotkey::HotkeyHandle, hotkey::BindError>),
     PortalProbed(bool),
     TrayReady(Option<tray::TrayState>),
+    /// The openable input devices, enumerated when the settings window opened (FR-008).
+    InputDevices(Vec<audio::InputDevice>),
 }
 
 impl std::fmt::Debug for AppEvent {
@@ -77,6 +79,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::HotkeyBound(_) => "HotkeyBound",
             AppEvent::PortalProbed(_) => "PortalProbed",
             AppEvent::TrayReady(_) => "TrayReady",
+            AppEvent::InputDevices(_) => "InputDevices",
         };
         write!(f, "AppEvent::{name}")
     }
@@ -826,6 +829,11 @@ impl App {
                 self.set_notice("Settings saved — they apply to the next dictation".to_owned());
                 Vec::new()
             }
+            AppEvent::InputDevices(devices) => {
+                tracing::debug!(count = devices.len(), "input device list ready");
+                self.settings.input_devices = Some(devices);
+                Vec::new()
+            }
             AppEvent::ModelProgress {
                 id,
                 received,
@@ -958,7 +966,8 @@ impl App {
                     spawn_pump("audio-pump", audio_rx, self.events.clone(), move |chunk| {
                         AppEvent::Chunk { generation, chunk }
                     });
-                    match audio::start(audio_tx) {
+                    let config = self.cfg.snapshot();
+                    match audio::start(audio_tx, config.capture_device()) {
                         Ok(capture) => {
                             self.last_capture = Some((capture.rate_in(), capture.channels()));
                             self.capture = Some(capture);
@@ -1636,13 +1645,18 @@ impl App {
             return window::gain_focus(*id);
         }
 
+        let mut tasks = Vec::new();
         if surface == ui::Surface::Settings {
+            // Every visit starts from scratch, so the list reflects the devices attached now
+            // (FR-008): no background watcher, no refresh control.
             self.settings = ui::SettingsUi::default();
+            tasks.push(input_devices_task());
         }
 
         let (id, task) = window::open(ui::window_settings(&surface));
         self.windows.insert(id, surface);
-        task.map(Message::WindowOpened)
+        tasks.push(task.map(Message::WindowOpened));
+        Task::batch(tasks)
     }
 
     fn spawn_hotkey_forwarder(&self, handle: &hotkey::HotkeyHandle) {
@@ -1685,6 +1699,23 @@ pub fn bind_task(chord: &str, preferred: Option<config::HotkeySource>) -> Task<M
     Task::perform(
         async move { hotkey::bind(&chord, preferred).await },
         |result| Message::Event(AppEvent::HotkeyBound(result)),
+    )
+}
+
+/// Enumerate the openable capture devices for the Microphone section, off the UI thread
+/// (FR-009): the probe opens every candidate, which must never run on the UI path.
+fn input_devices_task() -> Task<Message> {
+    Task::perform(
+        async {
+            match tokio::task::spawn_blocking(audio::input_devices).await {
+                Ok(devices) => devices,
+                Err(error) => {
+                    tracing::warn!(%error, "the input device enumeration did not run");
+                    Vec::new()
+                }
+            }
+        },
+        |devices| Message::Event(AppEvent::InputDevices(devices)),
     )
 }
 
