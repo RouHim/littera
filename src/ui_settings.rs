@@ -4,24 +4,32 @@
 //! cannot apply (a failed config write) keeps the previous value and is reported
 //! in the pinned footer instead.
 //!
-//! The model section renders the bundled [`model_catalog`] snapshot: one card per
-//! streaming variant with metadata, quality/speed indicators, a quant selector,
-//! an expandable detail, filters and sorting (FR-003/FR-004/FR-005). A language
-//! mismatch is a warning on the card and never blocks a selection (FR-011).
+//! The model section renders the bundled [`model_catalog`] snapshot: one compact
+//! card per streaming variant — name and download size, languages, parameters and
+//! license, a quant selector, the quality/speed bars and one line that merges the
+//! download state with its action — inside a capped, scrollable list, with
+//! filters, sorting and an expandable detail for the exact published values
+//! (FR-003/FR-004/FR-005). A language mismatch is a warning on the card and never
+//! blocks a selection (FR-011), and the list closes with the snapshot version it
+//! was rendered from (FR-002), so the pinned provenance sits with the entries it
+//! describes.
 //!
-//! Below the list the section names the compute backend the configured model
-//! runs on (FR-005/FR-014): the engine's report once a model is loaded, the
-//! startup device probe before that — the probe enumerates the registered
-//! devices without loading a model, so "GPU or CPU?" is answered while the first
-//! load is still in flight.
+//! Below the list the section renders the selected model's load lifecycle as one
+//! card (FR-001/FR-002/FR-012): loading, the resident backend and device, the
+//! not-resident state, or the failure reason — never a stale backend line. The
+//! same section carries the idle-unload timeout (FR-006/FR-007): one radio per
+//! preset, autosaved like every other setting.
 
-use iced::widget::{Space, button, column, progress_bar, radio, row, scrollable, text, text_input};
-use iced::{Element, Font, Length, Task};
+use std::fmt;
+
+use iced::widget::{
+    Space, button, column, container, pick_list, progress_bar, radio, row, scrollable, text_input,
+};
+use iced::{Element, Length, Task};
 
 use crate::app::App;
 use crate::audio;
-use crate::config::{self, Config, Language};
-use crate::engine::EngineInfo;
+use crate::config::{self, Config, IdleUnload, Language};
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
 use crate::ui::{self, Message, Tone, metrics, style};
@@ -47,6 +55,8 @@ pub enum Action {
     SetMaxSize(SizeFilter),
     SetSort(SortOrder),
     SelectLanguage(Language),
+    /// Pick the model idle-unload timeout (FR-006).
+    SelectIdleUnload(config::IdleUnload),
     /// Pick the capture device: its `alsa:…` identifier, or `system` (FR-007).
     SelectInputDevice(String),
     BindViaPortal,
@@ -54,35 +64,49 @@ pub enum Action {
     OpenModelDir,
 }
 
-/// Which variants the language filter keeps (FR-005).
+/// Which languages the model list keeps (FR-005): all of them, or exactly one
+/// the catalog can transcribe.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum LanguageFilter {
-    #[default]
-    All,
-    German,
-    English,
-}
+pub struct LanguageFilter(Option<Language>);
 
 impl LanguageFilter {
-    /// Every option, in the order the chips are rendered.
-    pub const ALL: [LanguageFilter; 3] = [Self::All, Self::German, Self::English];
+    /// The unrestricted filter — the default.
+    pub const ALL: Self = Self(None);
 
-    const fn label(self) -> &'static str {
-        match self {
-            LanguageFilter::All => "All languages",
-            LanguageFilter::German => "German",
-            LanguageFilter::English => "English",
-        }
+    /// The one-language filter.
+    pub const fn only(language: Language) -> Self {
+        Self(Some(language))
     }
 
-    /// Whether a variant is listed under this filter. A German-capable model
-    /// also serves English in practice, but the filter answers the question the
-    /// config asks: which models can transcribe the configured language.
+    /// Every option, in the order the pick list renders them: all languages,
+    /// then one entry per language the catalog offers, by display name.
+    pub fn options() -> Vec<Self> {
+        std::iter::once(Self::ALL)
+            .chain(
+                Language::ALL
+                    .into_iter()
+                    .filter(|language| !language.is_auto())
+                    .map(Self::only),
+            )
+            .collect()
+    }
+
+    /// Whether a variant is listed under this filter. A model serves a language
+    /// in whichever spelling it advertises it (`de` for `de-DE`), which
+    /// [`model_catalog::supports`] resolves.
     fn keeps(self, variant: &Variant) -> bool {
-        match self {
-            LanguageFilter::All => true,
-            LanguageFilter::German => model_catalog::supports(variant, Language::DeDe),
-            LanguageFilter::English => model_catalog::supports(variant, Language::EnUs),
+        self.0
+            .is_none_or(|language| model_catalog::supports(variant, language))
+    }
+}
+
+impl fmt::Display for LanguageFilter {
+    /// The option as the pick list renders it: the language's own name, or
+    /// "All languages".
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.0 {
+            None => f.write_str("All languages"),
+            Some(language) => f.write_str(language.display_name()),
         }
     }
 }
@@ -148,6 +172,11 @@ impl SortOrder {
 /// The indicator bars are reference marks, not progress: thin and short.
 const INDICATOR_BAR_WIDTH: f32 = 120.0;
 const INDICATOR_BAR_HEIGHT: f32 = 4.0;
+/// The dash a quant without a published measurement shows (SC-007).
+const NO_MEASUREMENT: &str = "—";
+/// The model list stops growing here and scrolls instead: two compact cards, so
+/// eight variants never decide how far the settings page reaches.
+const LIST_MAX_HEIGHT: f32 = 520.0;
 
 /// The note under a configured device that cannot be opened right now (FR-006).
 const CURRENTLY_UNAVAILABLE: &str = "currently unavailable";
@@ -155,6 +184,13 @@ const CURRENTLY_UNAVAILABLE: &str = "currently unavailable";
 const EMPTY_DEVICE_LABEL: &str = "(empty)";
 /// The section's progress note while the device list is being built (FR-009).
 const SCANNING_INPUT_DEVICES: &str = "Scanning input devices…";
+/// Joins the parts of one device option: name, identifier, note.
+const SEPARATOR: &str = "  ·  ";
+
+/// Caption of the catalog provenance line (FR-002): it closes the model list and
+/// heads the snapshot row of the Storage card, so the pinned version reads the
+/// same way wherever it appears.
+const SNAPSHOT_LABEL: &str = "Catalog snapshot";
 
 /// Session-only list state: the filters, the sorting, the expanded detail and
 /// the quants the user picked on cards that are not active.
@@ -296,6 +332,7 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
         Action::SetMaxSize(filter) => app.settings.list.max_size = filter,
         Action::SetSort(order) => app.settings.list.sort = order,
         Action::SelectLanguage(language) => return select_language(app, language),
+        Action::SelectIdleUnload(value) => return select_idle_unload(app, value),
         Action::SelectInputDevice(device) => return select_input_device(app, device),
         Action::OpenModelDir => return app.open_model_dir(),
         // The portal binds the configured chord; the compositor's own dialog
@@ -363,6 +400,28 @@ fn select_language(app: &mut App, language: Language) -> Vec<Task<Message>> {
     Vec::new()
 }
 
+/// Persist the idle-unload timeout (FR-007). The running countdown reads the
+/// shared config on every tick, so the change applies without a restart, and a
+/// shorter timeout that is already exceeded unloads within the next tick
+/// (Scenario 3.3).
+fn select_idle_unload(app: &mut App, value: IdleUnload) -> Vec<Task<Message>> {
+    if app.cfg.snapshot().idle_unload == value {
+        return Vec::new();
+    }
+    if let Err(error) = app.cfg.update(|cfg| cfg.idle_unload = value) {
+        tracing::error!(%error, "saving the idle-unload timeout failed");
+        app.settings.status = Some(ui::SettingsStatus {
+            text: format!("Saving failed: {error:#}"),
+            tone: Tone::Error,
+            section: ui::SettingsSection::Model,
+        });
+        return Vec::new();
+    }
+    app.settings.status = None;
+    tracing::info!(timeout = value.label(), "idle unload timeout changed");
+    Vec::new()
+}
+
 /// Persist the chosen capture device (FR-007): a plain config write, so the running recording
 /// keeps its device and the next one opens the new one — nothing is re-bound or restarted.
 fn select_input_device(app: &mut App, device: String) -> Vec<Task<Message>> {
@@ -411,24 +470,18 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     }
     model_section = model_section.push(controls(app));
     model_section = model_section.push(list(app, &visible, config.language));
-    model_section = model_section.push(backend_hint(app));
+    model_section = model_section.push(idle_unload_card(app));
 
-    let mut languages = column![].spacing(metrics::SPACE_MD);
-    for language in Language::ALL {
-        languages = languages.push(
-            radio(
-                format!("{}  ({})", language.display_name(), language.label()),
-                language,
-                Some(config.language),
-                Action::SelectLanguage,
-            )
-            .style(style::radio)
-            .text_size(metrics::TEXT_BODY)
-            .spacing(metrics::SPACE_SM),
-        );
-    }
+    // FR-007: one entry per language the catalog can serve, `Auto-detect` (the
+    // default) first — the same vocabulary the model filter uses.
+    let language_picker = pick_list(Language::ALL, Some(config.language), Action::SelectLanguage)
+        .width(Length::Fill)
+        .padding(metrics::BUTTON_PADDING)
+        .text_size(metrics::TEXT_BODY)
+        .style(style::pick_list)
+        .menu_style(style::pick_list_menu);
 
-    let mut language_card = column![ui::card(languages)].spacing(metrics::SPACE_MD);
+    let mut language_card = column![ui::card(language_picker)].spacing(metrics::SPACE_MD);
     if let Some(status) = ui.status_for(ui::SettingsSection::Language) {
         language_card = language_card.push(ui::banner(status.text.clone(), status.tone));
     } else if let Some(model) = model_catalog::language_warning(active.variant, config.language) {
@@ -438,12 +491,9 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     }
 
     let mut details = column![
-        row![
-            ui::muted::<Action>("Chord"),
-            ui::chord(config.hotkey.clone())
-        ]
-        .spacing(metrics::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        row![ui::key::<Action>("Chord"), ui::chord(config.hotkey.clone())]
+            .spacing(metrics::SPACE_SM)
+            .align_y(iced::Alignment::Center),
     ]
     .spacing(metrics::SPACE_SM);
 
@@ -474,7 +524,7 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         ui::banner(preview, Tone::Info)
     } else if app.portal_available == Some(true) {
         row![
-            button("Bind…")
+            button(ui::stamp("Bind…"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::BindViaPortal),
@@ -484,7 +534,7 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         .align_y(iced::Alignment::Center)
         .into()
     } else {
-        button("Bind…")
+        button(ui::stamp("Bind…"))
             .style(style::primary_button)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::StartCapture)
@@ -495,12 +545,12 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
 
     let mut storage = column![
         column![
-            ui::muted::<Action>("Catalog snapshot"),
+            ui::key::<Action>(SNAPSHOT_LABEL),
             ui::mono::<Action>(model_catalog::SNAPSHOT_VERSION),
         ]
         .spacing(metrics::SPACE_XS),
         column![
-            ui::muted::<Action>("Models are stored in"),
+            ui::key::<Action>("Models are stored in"),
             button(ui::mono::<Action>(app.model_dir_display()))
                 .style(style::link)
                 .padding([metrics::SPACE_XS, 0.0])
@@ -509,12 +559,12 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         ]
         .spacing(metrics::SPACE_XS),
         column![
-            ui::muted::<Action>("Space used"),
+            ui::key::<Action>("Space used"),
             ui::mono::<Action>(app.model_dir_usage_display()),
         ]
         .spacing(metrics::SPACE_XS),
         column![
-            ui::muted::<Action>("Current model file"),
+            ui::key::<Action>("Current model file"),
             ui::mono::<Action>(app.model.artifact.file_name),
         ]
         .spacing(metrics::SPACE_XS),
@@ -526,6 +576,7 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     }
 
     column![
+        capability_plate(app),
         model_section,
         column![ui::heading::<Action>("Language"), language_card].spacing(metrics::SPACE_MD),
         column![ui::heading::<Action>("Microphone"), microphone_section(app)]
@@ -537,21 +588,133 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     .into()
 }
 
-/// One row of the Microphone section (FR-004/FR-006): the value the config stores when it is
-/// picked, plus the two lines it renders.
+/// The capability plate (FR-005/FR-022): the machine's current truth, stamped
+/// once — model, backend, device and hotkey as label/value fields with one
+/// state lamp each. A fallback or a load failure keeps its reason in a placard
+/// under the frame; nothing here is ever a stale line.
+fn capability_plate(app: &App) -> Element<'_, Action> {
+    let config = app.cfg.snapshot();
+    let selection = app.model;
+    // The plate states the engine's line in its own short form; the pinned
+    // lifecycle strings stay with `model_state_line` (and its tests), whose note
+    // is the only part the plate reuses.
+    let backend_text = match &app.model_status {
+        crate::app::ModelStatus::Resident(info) => format!("{} — {}", info.backend, info.device),
+        crate::app::ModelStatus::Loading => "Loading…".to_owned(),
+        crate::app::ModelStatus::Failed(_) => "Load failed".to_owned(),
+        crate::app::ModelStatus::NotResident => {
+            "Not loaded — the next dictation loads it".to_owned()
+        }
+    };
+    let note = ui::model_state_line(&app.model_status, &selection.label()).note;
+
+    let model_lamp: Element<'_, Action> = match app.model_status {
+        crate::app::ModelStatus::Resident(_) => ui::lamp(Tone::Success),
+        crate::app::ModelStatus::Loading => ui::lamp(Tone::Warning),
+        crate::app::ModelStatus::Failed(_) => ui::lamp(Tone::Error),
+        crate::app::ModelStatus::NotResident => ui::lamp_off(),
+    };
+    let backend_lamp: Element<'_, Action> = match &app.model_status {
+        crate::app::ModelStatus::Resident(info) if info.fallback.is_some() => {
+            ui::lamp(Tone::Warning)
+        }
+        crate::app::ModelStatus::Resident(_) => ui::lamp(Tone::Success),
+        crate::app::ModelStatus::Loading => ui::lamp(Tone::Warning),
+        crate::app::ModelStatus::Failed(_) => ui::lamp(Tone::Error),
+        crate::app::ModelStatus::NotResident => ui::lamp_off(),
+    };
+    let device_lamp: Element<'_, Action> = if config.input_device.is_empty() {
+        ui::lamp(Tone::Error)
+    } else {
+        ui::lamp(Tone::Success)
+    };
+    let hotkey_lamp: Element<'_, Action> = if app.binding.is_some() {
+        ui::lamp(Tone::Success)
+    } else if app.hotkey_error.is_some() {
+        ui::lamp(Tone::Error)
+    } else {
+        ui::lamp(Tone::Warning)
+    };
+
+    let device = if config.input_device == config::INPUT_DEVICE_SYSTEM {
+        "System default".to_owned()
+    } else {
+        config.input_device.clone()
+    };
+    let hotkey = match &app.binding {
+        Some(binding) => format!("{} · {}", config.hotkey, binding.source.label()),
+        None => format!("{} · not bound", config.hotkey),
+    };
+
+    let fields = row![
+        column![
+            plate_field(model_lamp, "Model", ui::strong::<Action>(selection.label())),
+            plate_field(backend_lamp, "Backend", ui::mono::<Action>(backend_text)),
+        ]
+        .spacing(metrics::SPACE_SM)
+        .width(Length::Fill),
+        column![
+            plate_field(device_lamp, "Device", ui::mono::<Action>(device)),
+            plate_field(hotkey_lamp, "Hotkey", ui::mono::<Action>(hotkey)),
+        ]
+        .spacing(metrics::SPACE_SM)
+        .width(Length::Fill),
+    ]
+    .spacing(metrics::SPACE_XL);
+
+    let mut plate = column![ui::plate(fields)].spacing(metrics::SPACE_MD);
+    if let Some((note, tone)) = note {
+        plate = plate.push(ui::banner(note, tone));
+    }
+    plate.into()
+}
+
+/// One plate field: the lamp, the key locked in the label column, the value.
+fn plate_field<'a>(
+    lamp: Element<'a, Action>,
+    label: &str,
+    value: Element<'a, Action>,
+) -> Element<'a, Action> {
+    row![
+        lamp,
+        container(ui::key::<Action>(label)).width(Length::Fixed(metrics::FIELD_LABEL_WIDTH)),
+        value,
+    ]
+    .spacing(metrics::SPACE_SM)
+    .align_y(iced::Alignment::Center)
+    .into()
+}
+
+/// One option of the Microphone pick list (FR-004/FR-006): the value the config stores when it is
+/// picked, plus the parts of the one line it renders.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputDeviceRow {
     /// `system` or a backend device identifier — exactly what [`Action::SelectInputDevice`] carries.
     pub id: String,
-    /// First line: the device name, or the identifier itself when the device is unknown.
+    /// The device name, or the identifier itself when the device is unknown.
     pub label: String,
-    /// Second line: the technical identifier; `None` when the label already is it.
+    /// The technical identifier; `None` when the label already is it.
     pub identifier: Option<String>,
     /// A note such as [`CURRENTLY_UNAVAILABLE`]; `None` for a usable device.
     pub note: Option<&'static str>,
 }
 
-/// The rows the Microphone section renders: "System default" first (FR-004), then every device
+impl fmt::Display for InputDeviceRow {
+    /// The option as the pick list renders it — both in the closed field and in the open menu:
+    /// the label, then the identifier when it says more than the label, then the note.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.label)?;
+        if let Some(identifier) = &self.identifier {
+            write!(f, "{SEPARATOR}{identifier}")?;
+        }
+        if let Some(note) = self.note {
+            write!(f, "{SEPARATOR}{note}")?;
+        }
+        Ok(())
+    }
+}
+
+/// The options the Microphone pick list offers: "System default" first (FR-004), then every device
 /// that is openable right now, then — while the configured value is not among them — the
 /// configured value itself, marked [`CURRENTLY_UNAVAILABLE`] (FR-006). `devices` is `None` while
 /// the enumeration runs; the configured value is never substituted by a different entry.
@@ -598,17 +761,25 @@ pub fn input_device_rows(
     rows
 }
 
-/// The Microphone section (FR-004/FR-006); every row click autosaves the choice (FR-007).
+/// The Microphone section (FR-004/FR-006): one pick list over the offered devices, and picking
+/// one autosaves it (FR-007). The list is the whole choice — the section has no second control —
+/// so the card carries the picker alone, plus the two notes that can accompany it.
 fn microphone_section(app: &App) -> Element<'static, Action> {
     let config = app.cfg.snapshot();
     let rows = input_device_rows(&config, app.settings.input_devices.as_deref());
+    let selected = rows
+        .iter()
+        .find(|row| row.id == config.input_device)
+        .cloned();
 
-    // Not `list`: that name is taken by the model-card renderer in this module.
-    let mut entries = column![].spacing(metrics::SPACE_SM);
-    for row in rows {
-        let selected = row.id == config.input_device;
-        entries = entries.push(input_device_row(row, selected));
-    }
+    let picker = pick_list(rows, selected, |row| Action::SelectInputDevice(row.id))
+        .width(Length::Fill)
+        .padding(metrics::BUTTON_PADDING)
+        .text_size(metrics::TEXT_BODY)
+        .style(style::pick_list)
+        .menu_style(style::pick_list_menu);
+
+    let mut entries = column![picker].spacing(metrics::SPACE_SM);
     if app.settings.input_devices.is_none() {
         entries = entries.push(ui::banner(SCANNING_INPUT_DEVICES, Tone::Info));
     }
@@ -619,118 +790,38 @@ fn microphone_section(app: &App) -> Element<'static, Action> {
     ui::card(entries)
 }
 
-/// One row: a full-width button, so the whole row is the click target. iced's `radio` cannot be
-/// used here — it needs a `Copy` value and a single-line label, and a device row shows a name and
-/// an identifier. The selected row carries the accent fill (`style::primary_button`), the same
-/// vocabulary as the active model card.
-fn input_device_row(row: InputDeviceRow, selected: bool) -> Element<'static, Action> {
-    let (name_color, detail_color) = if selected {
-        (ui::palette::ON_ACCENT, ui::palette::ON_ACCENT)
-    } else {
-        (ui::palette::TEXT, ui::palette::MUTED)
-    };
+/// Caption of the idle-unload card (FR-006).
+const IDLE_UNLOAD_LABEL: &str = "Unload idle model";
+/// The card's one explanation line.
+const IDLE_UNLOAD_LEAD: &str =
+    "Frees the model's memory after this much idling — the next dictation loads it again.";
 
-    let mut content = column![text(row.label).size(metrics::TEXT_BODY).color(name_color)]
-        .spacing(metrics::SPACE_XS);
-    if let Some(identifier) = row.identifier {
-        content = content.push(
-            text(identifier)
-                .size(metrics::TEXT_CAPTION)
-                .font(Font::MONOSPACE)
-                .color(detail_color),
+/// The idle-unload timeout (FR-006/FR-007): one radio per preset, autosaved.
+fn idle_unload_card(app: &App) -> Element<'_, Action> {
+    let config = app.cfg.snapshot();
+    let mut options = column![].spacing(metrics::SPACE_SM);
+    for value in IdleUnload::ALL {
+        options = options.push(
+            radio(
+                value.display_name(),
+                value,
+                Some(config.idle_unload),
+                Action::SelectIdleUnload,
+            )
+            .style(style::radio)
+            .text_size(metrics::TEXT_BODY)
+            .spacing(metrics::SPACE_SM),
         );
     }
-    if let Some(note) = row.note {
-        content = content.push(text(note).size(metrics::TEXT_CAPTION).color(detail_color));
-    }
 
-    let button = button(content)
-        .width(Length::Fill)
-        .padding(metrics::BUTTON_PADDING);
-    let button = if selected {
-        button.style(style::primary_button)
-    } else {
-        button.style(style::secondary_button)
-    };
-    button.on_press(Action::SelectInputDevice(row.id)).into()
-}
-
-/// Label of the backend hint below the model list (FR-005/FR-014).
-const BACKEND_LABEL: &str = "Backend";
-/// Marks a backend that only the startup device probe has answered for; the
-/// engine has not loaded a model yet, so a fallback may still happen.
-const BACKEND_EXPECTED: &str = "expected";
-/// Shown while neither the engine nor the device probe has named a backend.
-const BACKEND_NOT_LOADED: &str = "not loaded";
-/// Prefix of the fallback notice; the reason follows after an em dash (FR-005).
-const BACKEND_FALLBACK: &str = "CPU fallback";
-
-/// The backend hint under the model list: which compute backend serves the
-/// configured model, and why it is not the GPU when it is not (FR-005, SC-004).
-fn backend_hint(app: &App) -> Element<'_, Action> {
-    let hint = backend_line(
-        app.engine_info.as_ref(),
-        app.probe_info.as_ref(),
-        app.engine_error.as_deref(),
-    );
-
-    let mut card = column![
+    ui::card(
         column![
-            ui::muted::<Action>(BACKEND_LABEL),
-            ui::mono::<Action>(hint.text),
+            ui::key::<Action>(IDLE_UNLOAD_LABEL),
+            options,
+            ui::lead::<Action>(IDLE_UNLOAD_LEAD),
         ]
-        .spacing(metrics::SPACE_XS)
-    ]
-    .spacing(metrics::SPACE_MD);
-
-    if let Some((note, tone)) = hint.note {
-        card = card.push(ui::banner(note, tone));
-    }
-
-    ui::card(card)
-}
-
-/// The hint's line and its optional notice.
-#[derive(Debug, PartialEq, Eq)]
-struct BackendLine {
-    text: String,
-    note: Option<(String, Tone)>,
-}
-
-/// `engine` is the engine's report for the loaded model, `probe` the startup
-/// device enumeration, `error` the last engine failure.
-///
-/// The engine's report wins: only a load knows whether the requested GPU
-/// backend held up, and only it carries the fallback reason. The probe answers
-/// the same question without touching the model file, so the hint is not blank
-/// while the first load is still running.
-fn backend_line(
-    engine: Option<&EngineInfo>,
-    probe: Option<&EngineInfo>,
-    error: Option<&str>,
-) -> BackendLine {
-    if let Some(info) = engine {
-        return BackendLine {
-            text: format!("{} — {}", info.backend, info.device),
-            note: info.fallback.as_deref().map(fallback_note),
-        };
-    }
-    if let Some(info) = probe {
-        return BackendLine {
-            text: format!("{} ({BACKEND_EXPECTED}) — {}", info.backend, info.device),
-            note: info.fallback.as_deref().map(fallback_note),
-        };
-    }
-    BackendLine {
-        text: BACKEND_NOT_LOADED.to_owned(),
-        note: error.map(|error| (error.to_owned(), Tone::Error)),
-    }
-}
-
-/// FR-005: a fallback is never silent — this is the reason the GPU path was
-/// abandoned, spelled the same way in the engine's notice.
-fn fallback_note(reason: &str) -> (String, Tone) {
-    (format!("{BACKEND_FALLBACK} — {reason}"), Tone::Warning)
+        .spacing(metrics::SPACE_MD),
+    )
 }
 
 /// FR-005: search, language filter, maximum size and sorting.
@@ -743,14 +834,18 @@ fn controls(app: &App) -> Element<'_, Action> {
         .padding(metrics::SPACE_SM)
         .size(metrics::TEXT_BODY);
 
-    let language_chips =
-        LanguageFilter::ALL
-            .into_iter()
-            .fold(row![].spacing(metrics::SPACE_SM), |chips, filter| {
-                chips.push(chip(filter.label(), filter == list.language, move |_| {
-                    Action::SetLanguageFilter(filter)
-                }))
-            });
+    // FR-005: the filter offers the languages the catalog can serve, not a
+    // hand-picked pair — the list below is exactly those languages.
+    let language_picker = pick_list(
+        LanguageFilter::options(),
+        Some(list.language),
+        Action::SetLanguageFilter,
+    )
+    .width(Length::Fill)
+    .padding(metrics::BUTTON_PADDING)
+    .text_size(metrics::TEXT_BODY)
+    .style(style::pick_list)
+    .menu_style(style::pick_list_menu);
 
     let size_chips =
         SizeFilter::ALL
@@ -785,7 +880,7 @@ fn controls(app: &App) -> Element<'_, Action> {
 
     let mut row = column![
         search,
-        controls_row("Language", language_chips),
+        controls_row("Language", language_picker),
         controls_row("Max download size", size_chips),
         controls_row("Sort by", sort_chips),
     ]
@@ -798,8 +893,8 @@ fn controls(app: &App) -> Element<'_, Action> {
     row.into()
 }
 
-fn controls_row<'a>(name: &'a str, chips: iced::widget::Row<'a, Action>) -> Element<'a, Action> {
-    row![ui::muted::<Action>(name), chips]
+fn controls_row<'a>(name: &'a str, control: impl Into<Element<'a, Action>>) -> Element<'a, Action> {
+    row![ui::key::<Action>(name), control.into()]
         .spacing(metrics::SPACE_MD)
         .align_y(iced::Alignment::Center)
         .into()
@@ -811,7 +906,7 @@ fn chip<'a>(
     selected: bool,
     on_press: impl Fn(()) -> Action + 'a,
 ) -> Element<'a, Action> {
-    let chip = button(label).padding(metrics::BUTTON_PADDING);
+    let chip = button(ui::stamp(label)).padding(metrics::BUTTON_PADDING);
     let chip = if selected {
         chip.style(style::primary_button)
     } else {
@@ -847,7 +942,25 @@ fn list<'a>(app: &'a App, visible: &[Selection], language: Language) -> Element<
     for selection in visible {
         cards = cards.push(card(app, *selection, language, best_wer, best_xrt));
     }
-    cards.into()
+    // The list *is* the snapshot rendered: its provenance closes it, so the
+    // pinned version is read where the entries it describes end.
+    cards = cards.push(
+        column![
+            ui::key::<Action>(SNAPSHOT_LABEL),
+            ui::mono::<Action>(model_catalog::SNAPSHOT_VERSION),
+        ]
+        .spacing(metrics::SPACE_XS),
+    );
+    // The list scrolls on its own and is capped, so its length never decides how
+    // far the settings page reaches: eight variants would otherwise push every
+    // section below them behind a long page scroll.
+    container(
+        scrollable(cards)
+            .direction(ui::scroll_direction())
+            .style(style::scrollable),
+    )
+    .max_height(LIST_MAX_HEIGHT)
+    .into()
 }
 
 /// One variant card (FR-003/FR-004).
@@ -875,7 +988,7 @@ fn card(
         .text_size(metrics::TEXT_LEAD)
         .spacing(metrics::SPACE_SM),
         Space::new().width(Length::Fill),
-        ui::muted::<Action>("Download size"),
+        ui::key::<Action>("Download size"),
         ui::data(models::human_size(artifact.size_bytes)),
     ]
     .spacing(metrics::SPACE_SM)
@@ -888,12 +1001,12 @@ fn card(
         variant.license,
     ));
 
-    let mut quants = row![ui::muted::<Action>("Quant")].spacing(metrics::SPACE_SM);
+    let mut quants = row![ui::key::<Action>("Quant")].spacing(metrics::SPACE_SM);
     for candidate in variant.downloads {
         let selected = candidate.quant == artifact.quant;
         let id = candidate.quant;
         quants = quants.push(
-            button(id)
+            button(ui::stamp(id))
                 .padding(metrics::BUTTON_PADDING)
                 .style(if selected {
                     style::primary_button
@@ -909,20 +1022,19 @@ fn card(
 
     let mut body = column![
         header,
-        ui::lead(variant.note),
         meta,
         quants,
         indicators(selection, language, best_wer, best_xrt),
-        action_panel(app, selection),
+        download_row(app, selection),
     ]
     .spacing(metrics::SPACE_MD);
 
     body = body.push(
-        button(if expanded {
-            "Details ▴"
+        button(ui::stamp(if expanded {
+            "Hide details"
         } else {
-            "Details ▾"
-        })
+            "Show details"
+        }))
         .style(style::secondary_button)
         .padding(metrics::BUTTON_PADDING)
         .on_press(Action::ToggleDetail(variant.id)),
@@ -943,101 +1055,172 @@ fn card(
     }
 }
 
-/// FR-004: the quality and speed indicators — one compact value line plus a
-/// thin, quiet bar scaled to the best listed model.
+/// FR-004: the quality and speed indicators — a caption next to a thin, quiet
+/// bar scaled to the best listed model.
 ///
-/// The exact values, the dataset they come from, the reference machine and the
-/// backend are in the card's detail, so the card stays scannable.
+/// The bars are the comparison the list is read for; the exact values, the
+/// datasets they come from, the reference machine and the backend are in the
+/// card's detail. A quant the catalog has no published number for shows
+/// [`NO_MEASUREMENT`] instead of a bar, so "unmeasured" is never read as "worst"
+/// (SC-007).
 fn indicators(
     selection: Selection,
     language: Language,
     best_wer: Option<f32>,
     best_xrt: Option<f32>,
 ) -> Element<'static, Action> {
-    let quality = model_catalog::quality(selection, language);
-    let quality_fraction = match (quality.map(|cell| cell.err_pct), best_wer) {
-        (Some(value), Some(best)) if value > 0.0 => best / value,
-        (Some(_), Some(_)) => 1.0,
-        _ => 0.0,
-    };
-    let quality_value = quality.map_or_else(
-        || "—".to_owned(),
-        |cell| format!("{:.1} % {}", cell.err_pct, cell.metric),
+    let quality_fraction = indicator_fraction(
+        model_catalog::quality(selection, language).map(|cell| cell.err_pct),
+        best_wer,
+        // Quality is the error rate: the smallest one is the best.
+        true,
+    );
+    let speed_fraction = indicator_fraction(
+        model_catalog::speed(selection).map(|row| row.xrt),
+        best_xrt,
+        false,
     );
 
-    let speed = model_catalog::speed(selection);
-    let speed_fraction = match (speed.map(|row| row.xrt), best_xrt) {
-        (Some(value), Some(best)) if best > 0.0 => value / best,
-        (Some(_), Some(_)) => 1.0,
-        _ => 0.0,
-    };
-    let speed_value =
-        speed.map_or_else(|| "—".to_owned(), |row| format!("{:.1}× realtime", row.xrt));
-
-    let column_of =
-        |caption: &'static str, fraction: f32, value: String| -> Element<'static, Action> {
-            column![
-                row![
-                    ui::muted::<Action>(caption),
-                    Space::new().width(Length::Fill),
-                    text(value)
-                        .size(metrics::TEXT_CAPTION)
-                        .font(Font::MONOSPACE)
-                        .color(ui::palette::TEXT),
-                ]
-                .align_y(iced::Alignment::Center),
-                progress_bar(0.0..=1.0, fraction)
-                    .length(Length::Fixed(INDICATOR_BAR_WIDTH))
-                    .girth(Length::Fixed(INDICATOR_BAR_HEIGHT))
-                    .style(style::progress_subtle),
-            ]
-            .spacing(metrics::SPACE_XS)
-            .width(Length::Fill)
-            .into()
-        };
-
     row![
-        column_of("Quality", quality_fraction, quality_value),
-        column_of("Speed", speed_fraction, speed_value),
+        indicator("Quality", quality_fraction),
+        indicator("Speed", speed_fraction),
     ]
     .spacing(metrics::SPACE_XL)
     .into()
 }
 
-/// The download/verify panel of one card; every card but the running one keeps
-/// its action disabled while a download runs (FR-006/SC-008).
-fn action_panel(app: &App, selection: Selection) -> Element<'static, Action> {
-    let verified = app
-        .engine_info
-        .as_ref()
-        .is_some_and(|_| app.model.artifact.id == selection.artifact.id);
-    let busy = app.download.as_ref().is_some_and(|state| {
-        state.is_running() && state.selection.artifact.id != selection.artifact.id
-    });
-    let id = selection.artifact.id;
+/// The fill of one indicator bar: the measurement relative to the best listed
+/// value on the same axis, or `None` when either side has no published number —
+/// an unmeasured bar must not read as a zero one (SC-007). `lower_is_better`
+/// separates the axes: the error rate is compared by its smallest value, the
+/// throughput by its largest.
+fn indicator_fraction(
+    measured: Option<f32>,
+    best: Option<f32>,
+    lower_is_better: bool,
+) -> Option<f32> {
+    let (measured, best) = (measured?, best?);
 
-    let panel = ui::model_panel(
-        app,
-        selection,
-        verified,
-        Action::Download(id),
-        Action::CancelDownload,
-        Action::RetryDownload(id),
-    );
-
-    if busy {
-        return column![panel, ui::muted::<Action>("Another download is running.")].into();
-    }
-    panel
+    Some(if lower_is_better {
+        if measured > 0.0 { best / measured } else { 1.0 }
+    } else if best > 0.0 {
+        measured / best
+    } else {
+        1.0
+    })
 }
 
-/// The expanded detail: the exact published values (FR-004/SC-001).
+/// One indicator: the caption next to its bar, or the dash of an unmeasured
+/// quant — the caption keeps both cases on the same line and in the same column.
+fn indicator(caption: &'static str, fraction: Option<f32>) -> Element<'static, Action> {
+    let mark: Element<'static, Action> = match fraction {
+        Some(fraction) => progress_bar(0.0..=1.0, fraction)
+            .length(Length::Fixed(INDICATOR_BAR_WIDTH))
+            .girth(Length::Fixed(INDICATOR_BAR_HEIGHT))
+            .style(style::progress_subtle)
+            .into(),
+        None => container(ui::muted::<Action>(NO_MEASUREMENT))
+            .width(Length::Fixed(INDICATOR_BAR_WIDTH))
+            .into(),
+    };
+
+    row![ui::key::<Action>(caption), mark]
+        .spacing(metrics::SPACE_SM)
+        .align_y(iced::Alignment::Center)
+        .into()
+}
+
+/// The card's download line: the state and the action it allows on one row
+/// (FR-003/FR-006/SC-008). Which state a card is in comes from
+/// [`ui::model_state`] — the same decision the onboarding panel renders in full.
+fn download_row(app: &App, selection: Selection) -> Element<'static, Action> {
+    let id = selection.artifact.id;
+    let busy = ui::download_busy_elsewhere(app, id);
+    let verified = matches!(app.model_status, crate::app::ModelStatus::Resident(_))
+        && app.model.artifact.id == id;
+
+    match ui::model_state(app, selection, verified) {
+        ui::ModelState::Downloading { percent } => row![
+            progress_bar(0.0..=100.0, percent)
+                .length(Length::Fill)
+                .style(style::progress),
+            ui::mono::<Action>(format!("{percent:.0} %")),
+            action_button("Cancel", Some(Action::CancelDownload), true),
+        ]
+        .spacing(metrics::SPACE_MD)
+        .align_y(iced::Alignment::Center)
+        .into(),
+        ui::ModelState::Verifying => row![
+            ui::state_tag("Verifying — SHA-256", Tone::Info),
+            action_button("Cancel", Some(Action::CancelDownload), true),
+        ]
+        .spacing(metrics::SPACE_MD)
+        .align_y(iced::Alignment::Center)
+        .into(),
+        ui::ModelState::Failed(error) => column![
+            ui::banner(error, Tone::Error),
+            row![
+                action_button("Retry", (!busy).then_some(Action::RetryDownload(id)), false),
+                ui::muted::<Action>("The partial download is kept and resumed."),
+            ]
+            .spacing(metrics::SPACE_MD)
+            .align_y(iced::Alignment::Center),
+        ]
+        .spacing(metrics::SPACE_SM)
+        .into(),
+        state => {
+            let (tag, tone, label, primary) = match state {
+                ui::ModelState::Verified => {
+                    ("Verified — ready to use", Tone::Success, "Verify", false)
+                }
+                ui::ModelState::OnDisk => {
+                    ("On disk — not checked yet", Tone::Info, "Verify", false)
+                }
+                _ => ("Not downloaded", Tone::Warning, "Download", true),
+            };
+            let action = Action::Download(id);
+            row![
+                ui::state_tag(tag, tone),
+                action_button(label, (!busy).then_some(action), primary),
+            ]
+            .spacing(metrics::SPACE_MD)
+            .align_y(iced::Alignment::Center)
+            .into()
+        }
+    }
+}
+
+/// The card's action button; rendered without an `on_press` (dimmed by the
+/// button style) when `message` is `None` — another download runs, or the
+/// action is the one a running download already offers elsewhere (FR-006/SC-008).
+fn action_button(
+    label: &'static str,
+    message: Option<Action>,
+    primary: bool,
+) -> Element<'static, Action> {
+    let button = button(ui::stamp(label))
+        .padding(metrics::BUTTON_PADDING)
+        .style(if primary {
+            style::primary_button
+        } else {
+            style::secondary_button
+        });
+
+    match message {
+        Some(message) => button.on_press(message).into(),
+        None => button.into(),
+    }
+}
+
+/// The expanded detail: the exact published values (FR-004/SC-001), plus the
+/// variant note the compact card leaves out.
 fn detail(selection: Selection) -> Element<'static, Action> {
     let variant = selection.variant;
     let artifact = selection.artifact;
 
     let mut rows = column![
-        ui::strong::<Action>("Accuracy"),
+        ui::lead::<Action>(variant.note),
+        ui::key::<Action>("Accuracy"),
         // The catalog record's headline cell: the measurement other tools quote.
         ui::muted::<Action>(format!(
             "headline: {} {} · {}",
@@ -1058,7 +1241,7 @@ fn detail(selection: Selection) -> Element<'static, Action> {
         )));
     }
 
-    rows = rows.push(ui::strong::<Action>("Speed"));
+    rows = rows.push(ui::key::<Action>("Speed"));
     for speed in variant.speed {
         rows = rows.push(ui::data::<Action>(format!(
             "{} · {} · {:.2}× realtime",
@@ -1103,7 +1286,6 @@ fn backend_label(backend: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model_catalog::RECOMMENDED_QUANT;
 
     /// The active selection every test starts from: the unchanged default.
     fn active() -> Selection {
@@ -1126,14 +1308,14 @@ mod tests {
     }
 
     #[test]
-    fn german_filter_keeps_only_the_german_capable_variants() {
+    fn a_language_filter_keeps_only_the_variants_that_serve_it() {
         let list = ListState {
-            language: LanguageFilter::German,
+            language: LanguageFilter::only(Language::new("de-DE")),
             ..ListState::default()
         };
 
         assert_eq!(
-            ids(&list, Language::DeDe),
+            ids(&list, Language::new("de-DE")),
             [
                 "nemotron-3.5-asr-streaming-0.6b",
                 "voxtral-mini-4b-realtime-2602"
@@ -1141,20 +1323,58 @@ mod tests {
         );
         // The filter keeps a variant whose advertised spelling differs from the
         // configured locale (`de` vs `de-DE`) and drops the English-only ones.
-        for selection in list.visible(active(), Language::DeDe) {
-            assert!(model_catalog::supports(selection.variant, Language::DeDe));
+        for selection in list.visible(active(), Language::new("de-DE")) {
+            assert!(model_catalog::supports(
+                selection.variant,
+                Language::new("de-DE")
+            ));
         }
+
+        // A language only one variant serves keeps exactly that one.
+        let vietnamese = ListState {
+            language: LanguageFilter::only(Language::new("vi-VN")),
+            ..ListState::default()
+        };
+        assert_eq!(
+            ids(&vietnamese, Language::new("vi-VN")),
+            ["nemotron-3.5-asr-streaming-0.6b"]
+        );
     }
 
     #[test]
-    fn language_filter_all_and_english_keep_the_whole_list() {
-        assert_eq!(ids(&ListState::default(), Language::Auto).len(), 8);
+    fn the_all_and_english_filters_pick_their_variants() {
+        assert_eq!(ids(&ListState::default(), Language::AUTO).len(), 8);
         let list = ListState {
-            language: LanguageFilter::English,
+            language: LanguageFilter::only(Language::new("en-US")),
             ..ListState::default()
         };
         // Every offered variant serves English, so the filter cannot narrow it.
-        assert_eq!(ids(&list, Language::EnUs).len(), 8);
+        assert_eq!(ids(&list, Language::new("en-US")).len(), 8);
+    }
+
+    #[test]
+    fn the_language_filter_offers_every_language_without_auto() {
+        let options = LanguageFilter::options();
+        // All languages first, then one entry per table language, same order.
+        assert_eq!(options.len(), Language::ALL.len());
+        assert_eq!(options[0], LanguageFilter::ALL);
+        assert_eq!(options[0].to_string(), "All languages");
+        assert_eq!(options[1].to_string(), Language::ALL[1].display_name());
+        assert_eq!(
+            options.last().map(ToString::to_string),
+            Some(
+                Language::ALL[Language::ALL.len() - 1]
+                    .display_name()
+                    .to_owned()
+            )
+        );
+        assert!(
+            options[1..].iter().all(|filter| matches!(
+                filter.0,
+                Some(language) if !language.is_auto()
+            )),
+            "auto is not a language to filter by"
+        );
     }
 
     #[test]
@@ -1163,21 +1383,23 @@ mod tests {
             max_size: SizeFilter::UpTo1Gb,
             ..ListState::default()
         };
-        let listed = ids(&one_gb, Language::Auto);
+        let listed = ids(&one_gb, Language::AUTO);
         assert_eq!(listed.len(), 7, "Voxtral's Q8_0 is 4.73 GB: {listed:?}");
         assert!(!listed.contains(&"voxtral-mini-4b-realtime-2602"));
 
-        // 500 MB keeps the three Moonshine variants with their recommended quant.
+        // 500 MB keeps the three Moonshine variants and Parakeet Unified, whose
+        // card preselects its recommended 477 MB Q4_K_M (its Q8_0 is 731 MB).
         let half_gb = ListState {
             max_size: SizeFilter::UpTo500Mb,
             ..ListState::default()
         };
         assert_eq!(
-            ids(&half_gb, Language::Auto),
+            ids(&half_gb, Language::AUTO),
             [
                 "moonshine-streaming-medium",
                 "moonshine-streaming-small",
                 "moonshine-streaming-tiny",
+                "parakeet-unified-en-0.6b",
             ]
         );
 
@@ -1186,7 +1408,7 @@ mod tests {
         // does not.
         let mut with_override = half_gb.clone();
         with_override.set_quant("nemotron-speech-streaming-en-0.6b", "Q4_K_M");
-        let listed = ids(&with_override, Language::Auto);
+        let listed = ids(&with_override, Language::AUTO);
         assert!(
             listed.contains(&"nemotron-speech-streaming-en-0.6b"),
             "{listed:?}"
@@ -1205,7 +1427,7 @@ mod tests {
                     search: query.to_owned(),
                     ..ListState::default()
                 },
-                Language::Auto,
+                Language::AUTO,
             )
         };
 
@@ -1226,7 +1448,7 @@ mod tests {
             sort: SortOrder::Size,
             ..ListState::default()
         };
-        let listed = list.visible(active(), Language::Auto);
+        let listed = list.visible(active(), Language::AUTO);
 
         assert_eq!(listed[0].artifact.size_bytes, 50_462_816);
         assert_eq!(listed[0].variant.id, "moonshine-streaming-tiny");
@@ -1258,7 +1480,7 @@ mod tests {
         list.set_quant("multitalker-parakeet-streaming-0.6b-v1", "Q6_K");
         list.set_quant("parakeet-unified-en-0.6b", "Q5_K_M");
 
-        let listed = list.visible(active(), Language::Auto);
+        let listed = list.visible(active(), Language::AUTO);
         assert_eq!(listed[0].variant.id, "moonshine-streaming-tiny");
         assert_eq!(listed[0].artifact.quant, "Q8_0");
         assert!(model_catalog::speed(listed[0]).is_some_and(|row| row.xrt > 38.0));
@@ -1299,21 +1521,28 @@ mod tests {
 
         // German: Voxtral's published German result (4.24) beats the Nemotron
         // 3.5 German result (10.33), even though the Nemotron leads in English.
-        let german = ids(&list, Language::DeDe);
+        let german = ids(&list, Language::new("de-DE"));
         let rank = |id: &str| german.iter().position(|candidate| *candidate == id);
         assert!(rank("voxtral-mini-4b-realtime-2602") < rank("nemotron-3.5-asr-streaming-0.6b"));
 
         // English: the same two models swap places (Nemotron 3.05 vs Voxtral 2.07
         // minus the quant rows); the best English WER leads either way.
-        let english = list.visible(active(), Language::EnUs);
+        let english = list.visible(active(), Language::new("en-US"));
         assert_eq!(english[0].variant.id, "parakeet-unified-en-0.6b");
         assert!(english.windows(2).all(|pair| {
-            model_catalog::quality(pair[0], Language::EnUs).map(|cell| cell.err_pct)
-                <= model_catalog::quality(pair[1], Language::EnUs).map(|cell| cell.err_pct)
+            model_catalog::quality(pair[0], Language::new("en-US")).map(|cell| cell.err_pct)
+                <= model_catalog::quality(pair[1], Language::new("en-US")).map(|cell| cell.err_pct)
         }));
 
+        // A locale without published cells ranks by its language's cells, exactly
+        // like the hint falls back to the bare language.
+        assert_eq!(
+            ids(&list, Language::new("en-GB")),
+            ids(&list, Language::new("en-US"))
+        );
+
         // Auto-detect sorts by the headline cell (fleurs for Nemotron 3.5).
-        let auto = list.visible(active(), Language::Auto);
+        let auto = list.visible(active(), Language::AUTO);
         assert_eq!(auto[0].variant.id, "parakeet-unified-en-0.6b");
         assert_eq!(auto.len(), 8);
     }
@@ -1323,11 +1552,15 @@ mod tests {
         let active = active();
         let mut list = ListState::default();
         let parakeet = variant("parakeet-unified-en-0.6b");
+        // Parakeet Unified's card preselects the catalog's recommendation for it
+        // (Q4_K_M), not the Q8_0 of the shipped default model.
         // The Moonshine variants ship a single quant, so their card is a fixed
         // Q8_0 whatever the overrides say.
         let moonshine = variant("moonshine-streaming-medium");
 
-        assert_eq!(list.quant_for(parakeet, active).quant, RECOMMENDED_QUANT);
+        assert_eq!(list.quant_for(parakeet, active).quant, "Q4_K_M");
+        // The CPU row carries the same quant today (see `model_catalog`).
+        assert_eq!(list.quant_for(parakeet, active).quant, "Q4_K_M");
         list.set_quant(parakeet.id, "Q4_K_M");
         assert_eq!(list.quant_for(parakeet, active).quant, "Q4_K_M");
         // One entry per variant, replaced rather than appended.
@@ -1339,9 +1572,9 @@ mod tests {
         // A quant the variant does not publish falls back to the recommended one
         // instead of rendering a card without a file.
         list.set_quant(parakeet.id, "F32");
-        assert_eq!(list.quant_for(parakeet, active).quant, RECOMMENDED_QUANT);
+        assert_eq!(list.quant_for(parakeet, active).quant, "Q4_K_M");
         list.set_quant(moonshine.id, "Q4_K_M");
-        assert_eq!(list.quant_for(moonshine, active).quant, RECOMMENDED_QUANT);
+        assert_eq!(list.quant_for(moonshine, active).quant, "Q8_0");
 
         // The active variant always shows the active artifact: the user's own
         // model is what runs, whatever was clicked on other cards.
@@ -1364,7 +1597,7 @@ mod tests {
         // Expanding a card does not change what is listed, and filtering does
         // not close it.
         assert_eq!(
-            ids(&list, Language::Auto),
+            ids(&list, Language::AUTO),
             ["voxtral-mini-4b-realtime-2602"]
         );
         assert_eq!(list.expanded, Some("voxtral-mini-4b-realtime-2602"));
@@ -1376,113 +1609,22 @@ mod tests {
             search: "nothing-matches-this".to_owned(),
             ..ListState::default()
         };
-        assert!(list.visible(active(), Language::Auto).is_empty());
+        assert!(list.visible(active(), Language::AUTO).is_empty());
     }
 
     #[test]
-    fn size_filter_labels_name_their_threshold() {
+    fn filter_and_sort_labels_are_frozen() {
         assert_eq!(SizeFilter::All.label(), "Any size");
         assert_eq!(SizeFilter::UpTo1Gb.label(), "≤ 1 GB");
-        assert_eq!(LanguageFilter::German.label(), "German");
+        assert_eq!(LanguageFilter::ALL.to_string(), "All languages");
+        assert_eq!(
+            LanguageFilter::only(Language::new("de-DE")).to_string(),
+            "German"
+        );
         assert_eq!(SortOrder::default(), SortOrder::Name);
-        assert_eq!(LanguageFilter::default(), LanguageFilter::All);
+        assert_eq!(LanguageFilter::default(), LanguageFilter::ALL);
         assert_eq!(SizeFilter::default(), SizeFilter::All);
         assert_eq!(SortOrder::ALL.map(SortOrder::label).len(), 4);
-    }
-
-    fn vulkan_info() -> EngineInfo {
-        EngineInfo {
-            backend: "Vulkan".to_owned(),
-            device: "AMD Radeon RX 6950 XT (RADV NAVI21)".to_owned(),
-            fallback: None,
-        }
-    }
-
-    /// FR-005/SC-004: the loaded model names the backend it actually runs on.
-    #[test]
-    fn backend_line_reports_the_backend_of_the_loaded_model() {
-        assert_eq!(
-            backend_line(Some(&vulkan_info()), None, None),
-            BackendLine {
-                text: "Vulkan — AMD Radeon RX 6950 XT (RADV NAVI21)".to_owned(),
-                note: None,
-            }
-        );
-    }
-
-    /// FR-005: a CPU fallback keeps its reason on screen instead of only in the
-    /// one-shot notice.
-    #[test]
-    fn backend_line_keeps_the_fallback_reason() {
-        let engine = EngineInfo {
-            backend: "CPU".to_owned(),
-            device: "AMD Ryzen 7 PRO 4750U".to_owned(),
-            fallback: Some("failed to initialize the Vulkan backend".to_owned()),
-        };
-
-        let line = backend_line(Some(&engine), Some(&vulkan_info()), None);
-        assert_eq!(line.text, "CPU — AMD Ryzen 7 PRO 4750U");
-        assert_eq!(
-            line.note,
-            Some((
-                "CPU fallback — failed to initialize the Vulkan backend".to_owned(),
-                Tone::Warning
-            ))
-        );
-    }
-
-    /// The probe answers "GPU or CPU?" without loading a model — before the
-    /// file is even on disk — but only the engine knows about a fallback, so the
-    /// probe result is marked as an expectation.
-    #[test]
-    fn backend_line_marks_a_probe_only_result_as_expected() {
-        assert_eq!(
-            backend_line(None, Some(&vulkan_info()), None),
-            BackendLine {
-                text: "Vulkan (expected) — AMD Radeon RX 6950 XT (RADV NAVI21)".to_owned(),
-                note: None,
-            }
-        );
-
-        let cpu_probe = EngineInfo {
-            backend: "CPU".to_owned(),
-            device: "AMD Ryzen 7 PRO 4750U".to_owned(),
-            fallback: Some("no Vulkan device found".to_owned()),
-        };
-        let line = backend_line(None, Some(&cpu_probe), None);
-        assert_eq!(line.text, "CPU (expected) — AMD Ryzen 7 PRO 4750U");
-        assert_eq!(
-            line.note,
-            Some((
-                "CPU fallback — no Vulkan device found".to_owned(),
-                Tone::Warning
-            ))
-        );
-    }
-
-    #[test]
-    fn backend_line_without_any_report_or_error_stays_quiet() {
-        assert_eq!(
-            backend_line(None, None, None),
-            BackendLine {
-                text: "not loaded".to_owned(),
-                note: None,
-            }
-        );
-    }
-
-    /// A failed load is the one place settings can explain why nothing runs.
-    #[test]
-    fn backend_line_names_the_engine_error_while_nothing_is_loaded() {
-        let line = backend_line(None, None, Some("model load failed for /tmp/x.gguf: boom"));
-        assert_eq!(line.text, "not loaded");
-        assert_eq!(
-            line.note,
-            Some((
-                "model load failed for /tmp/x.gguf: boom".to_owned(),
-                Tone::Error
-            ))
-        );
     }
 
     fn device(id: &str, name: &str) -> audio::InputDevice {
@@ -1568,5 +1710,59 @@ mod tests {
         assert_eq!(last.label, EMPTY_DEVICE_LABEL);
         assert_eq!(last.note, Some(CURRENTLY_UNAVAILABLE));
         assert!(rows[..rows.len() - 1].iter().all(|row| !row.id.is_empty()));
+    }
+
+    /// The option line the pick list renders: name, identifier, note, joined by this.
+    const OPTION_SEPARATOR: &str = "  ·  ";
+
+    #[test]
+    fn one_option_line_carries_name_identifier_and_note() {
+        assert_eq!(OPTION_SEPARATOR, super::SEPARATOR);
+
+        let none: Vec<audio::InputDevice> = Vec::new();
+        let default_row = &input_device_rows(&Config::default(), Some(&none))[0];
+        assert_eq!(
+            default_row.to_string(),
+            "System default",
+            "the system default has no identifier to add"
+        );
+
+        let devices = [device("alsa:pipewire", "PipeWire")];
+        let listed = &input_device_rows(&Config::default(), Some(&devices))[1];
+        assert_eq!(
+            listed.to_string(),
+            format!("PipeWire{OPTION_SEPARATOR}alsa:pipewire")
+        );
+
+        let config = Config {
+            input_device: "alsa:headset".to_owned(),
+            ..Config::default()
+        };
+        let rows = input_device_rows(&config, Some(&devices));
+        let missing = rows.last().expect("the configured device row");
+        assert_eq!(
+            missing.to_string(),
+            format!("alsa:headset{OPTION_SEPARATOR}{CURRENTLY_UNAVAILABLE}"),
+            "an unopenable device keeps its note on the option line"
+        );
+    }
+
+    #[test]
+    fn an_unmeasured_indicator_has_no_bar_and_the_best_value_fills_one() {
+        // SC-007: no published number on either side → no bar. A 0.0 bar would
+        // read as "worst value in the list".
+        assert_eq!(indicator_fraction(None, Some(2.0), true), None);
+        assert_eq!(indicator_fraction(Some(2.0), None, true), None);
+        assert_eq!(indicator_fraction(None, None, false), None);
+
+        // The error rate scales against the smallest, the throughput against the
+        // largest, so the best listed model fills its bar.
+        assert_eq!(indicator_fraction(Some(2.0), Some(2.0), true), Some(1.0));
+        assert_eq!(indicator_fraction(Some(4.0), Some(2.0), true), Some(0.5));
+        assert_eq!(indicator_fraction(Some(8.0), Some(8.0), false), Some(1.0));
+        assert_eq!(indicator_fraction(Some(4.0), Some(8.0), false), Some(0.5));
+
+        // A perfect (zero) error rate is measured, not missing.
+        assert_eq!(indicator_fraction(Some(0.0), Some(2.0), true), Some(1.0));
     }
 }

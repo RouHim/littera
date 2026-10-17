@@ -150,9 +150,9 @@ mod tests {
     #[test]
     fn embedded_icon_decodes_to_argb32() {
         let icon = tray_icon();
-        assert_eq!(icon.width, 64);
-        assert_eq!(icon.height, 64);
-        assert_eq!(icon.data.len(), 64 * 64 * 4);
+        assert_eq!(icon.width, 256);
+        assert_eq!(icon.height, 256);
+        assert_eq!(icon.data.len(), 256 * 256 * 4);
     }
 
     #[test]
@@ -164,6 +164,23 @@ mod tests {
             first[1..],
             [0, 0, 0],
             "premultiplied rgb of a transparent pixel is zero"
+        );
+    }
+
+    /// (20, 128) is inside the rounded tile, above the motif: the pixel pins the
+    /// master's tile fill to `palette::ACCENT` (FR-001).
+    #[test]
+    fn tile_pixel_carries_the_palette_accent() {
+        let icon = tray_icon();
+        let px = (20 * 256 + 128) * 4;
+        let pixel: [u8; 4] = icon.data[px..px + 4].try_into().expect("four bytes");
+        let [alpha, red, green, blue] = pixel;
+        let accent = crate::ui::palette::ACCENT;
+        let channel = |value: f32| (value * 255.0).round() as u8;
+        assert_eq!(alpha, 255);
+        assert_eq!(
+            [red, green, blue],
+            [channel(accent.r), channel(accent.g), channel(accent.b)]
         );
     }
 }

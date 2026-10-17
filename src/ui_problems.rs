@@ -42,11 +42,11 @@ pub fn view(app: &App) -> Element<'_, Action> {
             .direction(ui::scroll_direction())
             .style(style::scrollable),
         row![
-            button("Re-check")
+            button(ui::stamp("Re-check"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::Recheck),
-            button("Close")
+            button(ui::stamp("Close"))
                 .style(style::secondary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::Close),

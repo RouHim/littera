@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-16T17:30:00Z",
+  "title": "Design System: Lingua",
+  "extensions": {
+    "colorMeta": {
+      "enamel": { "role": "neutral", "displayName": "Enamel", "canonical": "#22282E", "tonalRamp": ["#000C11", "#20262C", "#3C4349", "#5B6269", "#7C838B", "#9EA6AE", "#C2CAD2", "#E7F0F8"] },
+      "plate": { "role": "neutral", "displayName": "Plate", "canonical": "#262D34", "tonalRamp": ["#000C12", "#1F262D", "#3B434A", "#5A626A", "#7B838C", "#9DA6AF", "#C1CAD3", "#E6F0F9"] },
+      "well": { "role": "neutral", "displayName": "Well", "canonical": "#1D2329", "tonalRamp": ["#000C11", "#20262C", "#3C4349", "#5B6269", "#7C838B", "#9EA6AE", "#C2CAD2", "#E7F0F8"] },
+      "silk": { "role": "neutral", "displayName": "Silk", "canonical": "#E9EBE4", "tonalRamp": ["#0B0C00", "#242621", "#41433D", "#60625C", "#81837D", "#A4A69F", "#C8CAC3", "#EDEFE8"] },
+      "muted": { "role": "neutral", "displayName": "Muted Steel", "canonical": "#9AA39B", "tonalRamp": ["#000D00", "#202721", "#3D443E", "#5C645C", "#7C857D", "#9FA8A0", "#C3CCC4", "#E8F2E9"] },
+      "signal": { "role": "primary", "displayName": "Signal Amber", "canonical": "#E3B23C", "tonalRamp": ["#230000", "#421700", "#633700", "#855800", "#A87A00", "#CD9D1C", "#F3C14E", "#FFE777"] },
+      "signal-hover": { "role": "primary", "displayName": "Signal Amber, Shallow", "canonical": "#EDC158", "tonalRamp": ["#210000", "#401A00", "#603900", "#825900", "#A57B00", "#C99E30", "#EFC35A", "#FFE881"] },
+      "signal-pressed": { "role": "primary", "displayName": "Signal Amber, Deep", "canonical": "#C99A2E", "tonalRamp": ["#220000", "#421800", "#623700", "#845800", "#A77A00", "#CC9D32", "#F2C15B", "#FFE782"] },
+      "stop": { "role": "primary", "displayName": "Stop Red", "canonical": "#C14B3A", "tonalRamp": ["#350000", "#5B0000", "#810000", "#A73324", "#CF5745", "#F77B67", "#FFA08A", "#FFC5AE"] },
+      "fault": { "role": "primary", "displayName": "Fault Ink", "canonical": "#E07361", "tonalRamp": ["#320000", "#560000", "#7B1400", "#A13A2C", "#C85D4D", "#EF816E", "#FFA591", "#FFCAB5"] },
+      "run": { "role": "primary", "displayName": "Run Green", "canonical": "#6FAF74", "tonalRamp": ["#001400", "#003100", "#0B501A", "#32713A", "#54945A", "#77B77C", "#9BDC9F", "#BFFFC3"] }
+    },
+    "typographyMeta": {
+      "legend": { "displayName": "Legend", "purpose": "Section headings, upper-case, condensed." },
+      "key": { "displayName": "Key", "purpose": "Field keys, state captions and stamped controls." },
+      "body": { "displayName": "Body", "purpose": "Values, ledes and sentences." },
+      "identifier": { "displayName": "Identifier", "purpose": "Paths, sizes, chords, percentages." }
+    },
+    "shadows": [],
+    "motion": []
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Stamped signal frame at rest; fills on hover. Used for Download, Bind, Finish.",
+      "html": "<button class=\"ds-btn-primary\">DOWNLOAD</button>",
+      "css": ".ds-btn-primary { background: transparent; color: #E3B23C; border: 1px solid #E3B23C; border-radius: 0; padding: 8px 16px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: none; } .ds-btn-primary:hover { background: #EDC158; color: #22282E; } .ds-btn-primary:active { background: #C99A2E; color: #22282E; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Silk frame on steel; a 7% silk wash on hover. Used for Verify, Show details, Back.",
+      "html": "<button class=\"ds-btn-secondary\">VERIFY</button>",
+      "css": ".ds-btn-secondary { background: transparent; color: #E9EBE4; border: 1px solid rgba(233,235,228,0.55); border-radius: 0; padding: 8px 16px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: none; } .ds-btn-secondary:hover { background: rgba(233,235,228,0.07); }"
+    },
+    {
+      "name": "Capability Plate",
+      "kind": "card",
+      "refersTo": "plate",
+      "description": "The one plate per surface: double frame, a 2x2 field grid with one state lamp each.",
+      "html": "<div class=\"ds-plate\"><div class=\"ds-plate-inner\"><div class=\"ds-plate-grid\"><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">MODEL</span><span class=\"ds-value\">Nemotron 3.5 ASR Streaming 0.6B — Q8_0</span></div><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">DEVICE</span><span class=\"ds-value mono\">System default</span></div><div class=\"ds-field\"><span class=\"ds-lamp off\"></span><span class=\"ds-key\">BACKEND</span><span class=\"ds-value mono\">Loading…</span></div><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">HOTKEY</span><span class=\"ds-value mono\">CTRL+SUPER · device listener</span></div></div></div></div>",
+      "css": ".ds-plate { background: #262D34; border: 1px solid rgba(233,235,228,0.55); padding: 4px; } .ds-plate-inner { border: 1px solid rgba(233,235,228,0.26); padding: 12px; } .ds-plate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; } .ds-field { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(233,235,228,0.16); padding: 4px 0; } .ds-key { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #9AA39B; width: 96px; } .ds-value { font-family: 'Inter', sans-serif; font-size: 15px; color: #E9EBE4; } .ds-value.mono { font-family: ui-monospace, monospace; font-size: 13px; } .ds-lamp { width: 7px; height: 7px; border-radius: 50%; background: #6FAF74; } .ds-lamp.off { background: none; border: 1px solid #9AA39B; }"
+    },
+    {
+      "name": "Placard, Warning",
+      "kind": "custom",
+      "refersTo": "placard-warning",
+      "description": "The alarm shape: full signal frame, 10% wash, signal ink. No edge stripe, no icon.",
+      "html": "<div class=\"ds-placard ds-warn\">The keystroke device /dev/uinput is not writable — the transcript goes to the clipboard only.</div>",
+      "css": ".ds-placard { border-radius: 0; padding: 12px; font-family: 'Inter', sans-serif; font-size: 15px; } .ds-placard.ds-warn { background: rgba(227,178,60,0.10); border: 1px solid rgba(227,178,60,0.70); color: #E3B23C; }"
+    },
+    {
+      "name": "Placard, Failure",
+      "kind": "custom",
+      "refersTo": "placard-failure",
+      "description": "Failures frame in Stop Red while their text stays readable in Fault Ink.",
+      "html": "<div class=\"ds-placard ds-fail\">Load failed — the partial download is kept and resumed.</div>",
+      "css": ".ds-placard { border-radius: 0; padding: 12px; font-family: 'Inter', sans-serif; font-size: 15px; } .ds-placard.ds-fail { background: rgba(224,115,97,0.10); border: 1px solid rgba(193,75,58,0.70); color: #E07361; }"
+    },
+    {
+      "name": "Field",
+      "kind": "input",
+      "refersTo": "field",
+      "description": "Recessed well with a hairline frame; the frame turns signal on focus.",
+      "html": "<input class=\"ds-field-input\" placeholder=\"Search models…\">",
+      "css": ".ds-field-input { background: #1D2329; color: #E9EBE4; border: 1px solid rgba(233,235,228,0.26); border-radius: 0; padding: 8px 10px; font-family: 'Inter', sans-serif; font-size: 15px; outline: none; } .ds-field-input::placeholder { color: #9AA39B; } .ds-field-input:hover { border-color: rgba(233,235,228,0.55); } .ds-field-input:focus { border-color: #E3B23C; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Nameplate",
+    "overview": "Lingua's windows are the machine talking about itself. The Settings screen opens on a single stamped plate — model, backend, device, hotkey, one state lamp each — and then disciplined rows of field facts below it. Legends are condensed and capitalised as if silk-screened onto enamelled steel; values are set plainly; identifiers, paths and commands are monospace because they are data. Alarms are placards: a full frame, the tone's wash, the tone's ink. Nothing is rounded, nothing floats, nothing glows.\n\nThe use scene fixes the light: someone at a desk, often at night, screen-lit, opening Settings deliberately mid-work to change one setting and close it again; the overlay pill floats over any content at any hour. That forces a dark steel ground with one signal colour, and it forces restraint — the app is a background instrument, not a destination.\n\nThe system is deliberately sparse where it can be and explicit where it must be. Every capability the platform withholds has a surface: a lamp dims, a placard turns on, a blocked path names its fix. The world carries colour as information — the signal yellow means \"actable or attention\", the stop red means failure, the run green means a verified machine state — and nothing else is coloured.",
+    "keyCharacteristics": [
+      "One capability plate per surface, framed twice, never repeated.",
+      "Stamped square controls; hover fills, nothing tweens.",
+      "Legends in condensed caps; values in Inter; identifiers in monospace.",
+      "Lamps and placards as the only state vocabulary.",
+      "Flat steel: no shadows, no gradients, no rounded cards."
+    ],
+    "rules": [
+      { "name": "The Signal-Only Rule", "body": "Exactly one saturated colour exists. It marks what can be acted on and what demands attention; if an element is neither, it is silk, muted steel or nothing.", "section": "colors" },
+      { "name": "The Legible-Failure Rule", "body": "Failure text always uses Fault Ink, never Stop Red; Stop Red only frames. A failure must stay readable before it may look severe.", "section": "colors" },
+      { "name": "The Stencil-Caps Rule", "body": "Anything that labels, names a section, or reports a state is upper-case in the legend face. Anything that is a sentence stays in Inter at sentence case.", "section": "typography" },
+      { "name": "The Data-Is-Mono Rule", "body": "Monospace is reserved for identifiers, measurements and commands; it is never a costume for technical tone.", "section": "typography" },
+      { "name": "The Flat-Steel Rule", "body": "No shadow, no blur, no gradient. A surface is defined by its fill tone and its frame; if that is not enough to separate it, the tone step is wrong.", "section": "elevation" },
+      { "name": "The Square-Stamp Rule", "body": "Radius 0 is the default for anything that sits in a panel. Anything rounded must be small, floating or transient; if it is none of those, it is a defect.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do state every capability the machine owns in the plate, with a lamp whose colour is the truth of that moment.",
+      "Do stamp controls: legend caps, square frames, hover fills.",
+      "Do keep failure text in Fault Ink and reserve Stop Red for frames.",
+      "Do set keys, identifiers and percentages in their own faces — legend caps and mono — instead of styling prose.",
+      "Do leave whitespace between a state and its action: the caption left, the button right."
+    ],
+    "donts": [
+      "Don't round a plate, a field, a button or a placard — radius 0 is the contract.",
+      "Don't introduce a second saturated colour, a gradient, a glow or a shadow.",
+      "Don't use glyphs or emoji as icons; a control names its action in words (\"SHOW DETAILS\"), and state markers are stencil words (\"OK\", \"FAIL\").",
+      "Don't stripe an alert; a placard carries its meaning in its frame and wash.",
+      "Don't let a disabled control look interactive, and never dim a lamp to hide a state — draw it hollow.",
+      "Don't run monospace outside data, and never upper-case prose."
+    ]
+  }
+}

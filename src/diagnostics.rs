@@ -5,12 +5,13 @@
 //! formatter over values gathered elsewhere, so a failure reads identically in all
 //! three places and can be unit-tested without any hardware or session.
 
-use crate::config::{Config, HotkeySource};
+use crate::config::{BackendPreference, Config, HotkeySource};
 use crate::engine::EngineInfo;
 use crate::hotkey::{self, BindError, Binding};
 use crate::hotkey_device;
 use crate::inserter;
 use crate::overlay::OverlayBackend;
+use crate::vulkan_icd;
 
 const NAME_HOTKEY: &str = "hotkey access";
 const NAME_PASTE: &str = "paste permission";
@@ -20,7 +21,8 @@ const NAME_OVERLAY: &str = "overlay backend";
 const REMEDIATION_HOTKEY: &str = "sudo usermod -aG input $USER && log out and back in";
 const REMEDIATION_PASTE: &str =
     "grant write access to /dev/uinput (logind uaccess ACL); log out and back in if missing";
-const REMEDIATION_GPU: &str = "install/repair the Mesa RADV Vulkan driver (vulkaninfo)";
+const REMEDIATION_GPU: &str =
+    "install/repair the Vulkan driver for this GPU (vulkaninfo shows what the loader finds)";
 const REMEDIATION_OVERLAY: &str =
     "install a layer-shell compositor or run under XWayland for the non-activating overlay";
 
@@ -138,23 +140,50 @@ pub fn paste_check() -> Check {
 }
 
 /// Transcription backend: `"Vulkan: AMD Radeon RX 6950 XT (RADV NAVI21)"` once the
-/// engine reported a device. A Vulkan→CPU fallback is reported but still a pass —
-/// the CPU backend transcribes too, just slower.
-pub fn engine_check(info: Option<&EngineInfo>, error: Option<&str>) -> Check {
-    match info {
-        Some(info) => Check {
-            name: NAME_GPU,
-            ok: true,
-            detail: gpu_detail(info),
-            remediation: None,
-        },
-        None => Check {
-            name: NAME_GPU,
-            ok: false,
-            detail: error.unwrap_or("engine not loaded").to_owned(),
-            remediation: Some(REMEDIATION_GPU.to_owned()),
+/// engine reported a device.
+///
+/// A Vulkan→CPU fallback the preference did not ask for fails the check
+/// (FR-005/FR-014): the app still transcribes, but on the CPU, and the reason is
+/// a machine that cannot reach its GPU. `missing_driver` — the command that
+/// installs the absent driver, when the machine names one — replaces the generic
+/// remedy. `backend = "cpu"` asks for the CPU path, so it stays a pass.
+pub fn gpu_check(
+    info: Option<&EngineInfo>,
+    error: Option<&str>,
+    preference: BackendPreference,
+    missing_driver: Option<String>,
+) -> Check {
+    let (ok, detail) = match info {
+        Some(info) => (!fell_back(info, preference), gpu_detail(info)),
+        None => (false, error.unwrap_or("engine not loaded").to_owned()),
+    };
+    Check {
+        name: NAME_GPU,
+        ok,
+        detail,
+        remediation: if ok {
+            None
+        } else {
+            Some(missing_driver.unwrap_or_else(|| REMEDIATION_GPU.to_owned()))
         },
     }
+}
+
+/// Whether the engine abandoned the GPU the preference asked for (FR-005). A
+/// Vulkan backend that held up carries no fallback, and `cpu` was the request.
+fn fell_back(info: &EngineInfo, preference: BackendPreference) -> bool {
+    info.fallback.is_some() && preference != BackendPreference::Cpu
+}
+
+/// The GPU check as the app and `lingua --diagnostics` render it: [`gpu_check`]
+/// with the live driver inventory attached. The probe runs only for a fallback,
+/// so a healthy machine reads no `/sys` for this check.
+pub fn gpu_check_probed(cfg: &Config, info: Option<&EngineInfo>, error: Option<&str>) -> Check {
+    let missing_driver = match info {
+        Some(info) if fell_back(info, cfg.backend) => vulkan_icd::advice(),
+        _ => None,
+    };
+    gpu_check(info, error, cfg.backend, missing_driver)
 }
 
 /// `"{backend}: {device}"`, with the fallback notice appended when the engine had
@@ -205,8 +234,8 @@ pub fn collect(cfg: &Config, state: &State) -> Vec<Check> {
 /// the configured model instead of printing a bare "not loaded".
 fn gpu_check_from_state(cfg: &Config, state: &State) -> Check {
     match (&state.engine, state.engine_error.as_deref()) {
-        (Some(info), _) => engine_check(Some(info), None),
-        (None, Some(error)) => engine_check(None, Some(error)),
+        (Some(info), _) => gpu_check_probed(cfg, Some(info), None),
+        (None, Some(error)) => gpu_check_probed(cfg, None, Some(error)),
         (None, None) => Check {
             name: NAME_GPU,
             ok: false,
@@ -255,8 +284,11 @@ mod tests {
 
     #[test]
     fn checks_compare_by_value() {
-        let check = engine_check(Some(&vulkan_info()), None);
-        assert_eq!(check, engine_check(Some(&vulkan_info()), None));
+        let check = gpu_check(Some(&vulkan_info()), None, BackendPreference::Auto, None);
+        assert_eq!(
+            check,
+            gpu_check(Some(&vulkan_info()), None, BackendPreference::Auto, None)
+        );
 
         let mut changed = check.clone();
         changed.ok = false;
@@ -279,7 +311,7 @@ mod tests {
         );
         assert_eq!(
             REMEDIATION_GPU,
-            "install/repair the Mesa RADV Vulkan driver (vulkaninfo)"
+            "install/repair the Vulkan driver for this GPU (vulkaninfo shows what the loader finds)"
         );
         assert!(REMEDIATION_PASTE.contains("/dev/uinput (logind uaccess ACL)"));
         assert!(REMEDIATION_PASTE.ends_with("log out and back in if missing"));
@@ -289,33 +321,72 @@ mod tests {
     }
 
     #[test]
-    fn engine_check_reports_backend_and_device() {
-        let check = engine_check(Some(&vulkan_info()), None);
+    fn gpu_check_reports_backend_and_device() {
+        let check = gpu_check(Some(&vulkan_info()), None, BackendPreference::Auto, None);
         assert_eq!(check.name, "GPU backend");
         assert!(check.ok);
         assert_eq!(check.detail, "Vulkan: AMD Radeon RX 6950 XT (RADV NAVI21)");
         assert_eq!(check.remediation, None);
     }
 
+    /// The reported defect: an Intel GPU without an ICD showed up as a passing
+    /// check, so onboarding said nothing about the missing driver package.
     #[test]
-    fn engine_check_appends_fallback_but_stays_ok() {
+    fn gpu_check_fails_a_fallback_the_preference_did_not_ask_for() {
+        let info = EngineInfo {
+            backend: "CPU".to_owned(),
+            device: "12th Gen Intel(R) Core(TM) i7-12700H".to_owned(),
+            fallback: Some("no Vulkan device found".to_owned()),
+        };
+        let driver = "sudo pacman -S vulkan-intel — no Vulkan ICD for the Intel GPU".to_owned();
+
+        let check = gpu_check(
+            Some(&info),
+            Some("stale load error"),
+            BackendPreference::Auto,
+            Some(driver.clone()),
+        );
+        assert_eq!(check.name, "GPU backend");
+        assert!(!check.ok);
+        assert_eq!(
+            check.detail,
+            "CPU: 12th Gen Intel(R) Core(TM) i7-12700H (fallback: no Vulkan device found)"
+        );
+        assert_eq!(check.remediation.as_deref(), Some(driver.as_str()));
+
+        // `vulkan` is a request for the GPU, so the fallback fails there too.
+        assert!(!gpu_check(Some(&info), None, BackendPreference::Vulkan, None).ok);
+    }
+
+    #[test]
+    fn gpu_check_uses_the_generic_remedy_when_no_driver_is_named() {
         let info = EngineInfo {
             backend: "CPU".to_owned(),
             device: "AMD Ryzen 9 5950X".to_owned(),
             fallback: Some("Vulkan load failed".to_owned()),
         };
-        let check = engine_check(Some(&info), Some("stale load error"));
+        let check = gpu_check(Some(&info), None, BackendPreference::Auto, None);
+
+        assert!(!check.ok);
+        assert_eq!(check.remediation.as_deref(), Some(REMEDIATION_GPU));
+    }
+
+    #[test]
+    fn gpu_check_passes_a_cpu_backend_that_was_requested() {
+        let info = EngineInfo {
+            backend: "CPU".to_owned(),
+            device: "AMD Ryzen 9 5950X".to_owned(),
+            fallback: Some("no Vulkan device found".to_owned()),
+        };
+        let check = gpu_check(Some(&info), None, BackendPreference::Cpu, None);
+
         assert!(check.ok);
-        assert_eq!(
-            check.detail,
-            "CPU: AMD Ryzen 9 5950X (fallback: Vulkan load failed)"
-        );
         assert_eq!(check.remediation, None);
     }
 
     #[test]
-    fn engine_check_failure_uses_the_error() {
-        let check = engine_check(None, Some("boom"));
+    fn gpu_check_failure_uses_the_error() {
+        let check = gpu_check(None, Some("boom"), BackendPreference::Auto, None);
         assert_eq!(check.name, "GPU backend");
         assert!(!check.ok);
         assert_eq!(check.detail, "boom");
@@ -323,8 +394,8 @@ mod tests {
     }
 
     #[test]
-    fn engine_check_without_error_says_not_loaded() {
-        let check = engine_check(None, None);
+    fn gpu_check_without_error_says_not_loaded() {
+        let check = gpu_check(None, None, BackendPreference::Auto, None);
         assert!(!check.ok);
         assert_eq!(check.detail, "engine not loaded");
         assert_eq!(check.remediation.as_deref(), Some(REMEDIATION_GPU));

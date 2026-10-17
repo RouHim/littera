@@ -29,6 +29,10 @@ use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::ZwlrLay
 #[derive(Debug, Clone, PartialEq)]
 pub enum OverlayState {
     Recording,
+    /// The model is loading while the dictation is already recording (FR-004):
+    /// the recording keeps running and the level bar stays live; `String` is the
+    /// model label.
+    LoadingModel(String),
     Transcribing,
     Queued,
     Inserting,

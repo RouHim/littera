@@ -139,14 +139,27 @@ cargo build --release
 ```
 
 The model section lists every streaming ASR variant of the bundled `transcribe.cpp`
-catalog snapshot (8 variants, 23 quantized artifacts) with its published accuracy and
-speed ratings, a quant selector, filters and sorting; the exact values, the reference
-machine and a file's SHA-256 are in each card's expandable detail. One download runs at
+catalog snapshot (8 variants, 23 quantized artifacts) as a compact card: name, download
+size, languages, parameters, license, a quant selector and the accuracy/speed bars scaled
+to the best listed model, with filters and sorting, in a capped list that scrolls on its
+own. The state and the action share one line per card (`Not downloaded` + *Download*,
+`On disk` + *Verify*, a progress bar + *Cancel* while a transfer runs); the exact
+published values, the dataset and reference machine, the variant's note and a file's
+SHA-256 are in each card's expandable detail, and the list closes with the catalog
+snapshot version it was rendered from. The quant a card preselects is the catalog's
+per-model recommendation: the smallest quant measured within 0.05 pp of Q8_0 *and* with a
+published throughput — Q4_K_M on Voxtral Mini 4B (also the only measured speed win),
+Parakeet Unified EN and Parakeet Multitalker; Q8_0 wherever nothing smaller is measured on
+both axes (both Nemotrons, Moonshine). The compute backend plays no part in it: the error
+of a quantisation is backend-independent, and Q4_K_M is 1.0–3.9 % *slower* on either
+backend wherever it is measured — except the memory-bound Voxtral, where it wins on both
+(+15 % Vulkan, +26 % CPU). Q6_K/Q5_K_M stay one click away on every card. One download
+runs at
 a time: it is resumable and verified against the pinned SHA-256 before the artifact is
 loaded, it can be cancelled (the partial file is kept) and retried, and the finished
 model becomes active immediately. The default is Nemotron 3.5 ASR Streaming 0.6B in
-Q8_0 (751 MB) — multilingual, 32 locales incl. German; the list also offers the
-English-only variants (down to 50 MB) and Voxtral Mini 4B Realtime (4.73 GB).
+Q8_0 (751 MB) — multilingual, 32 locales; the list also offers the English-only
+variants (down to 50 MB) and Voxtral Mini 4B Realtime (4.73 GB).
 
 `lingua` runs as a single instance: launching it again forwards "open settings" to the
 running process and exits. A tray icon (StatusNotifierItem) shows the dictation state
@@ -201,27 +214,39 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 - Failed capability checks (hotkey access, paste permission, GPU backend, overlay)
   open a **problem notice** window at startup — the daemon itself starts without any
   window — listing each failure with its exact fix and a *Re-check* button; a passing
-  re-check closes the notice. A Vulkan→CPU fallback is not a failure: it shows as an
-  overlay notice and keeps dictation working.
+  re-check closes the notice. A Vulkan→CPU fallback is a failed GPU check unless
+  `backend = "cpu"` asked for it: it keeps the fallback reason on screen, names the
+  command that installs the driver the machine is missing (the GPU's vendor is read from
+  `/sys/bus/pci/devices`, the installed ICDs from `/usr/share/vulkan/icd.d`, the package
+  manager from `PATH` — e.g. `sudo pacman -S vulkan-intel — no Vulkan ICD for the Intel
+  GPU`), and dictation keeps working on the CPU.
 - Settings are stored in `~/.config/lingua/config.toml`; every change in the settings
   window applies immediately (autosave — there is no Save button) and persists without a
-  restart. Selecting a model never blocks on the language: a model that cannot serve
-  the configured language stays selectable, warns on its card, and runs without a
-  language hint (the engine's hint spelling follows what the loaded GGUF advertises —
-  `de-DE` for Nemotron 3.5, bare `de` for Voxtral). A change the app cannot apply (a
-  failed config write) keeps the previous value and says why right there in that
+  restart. The **Language** section is one pick list: `Auto-detect` (the default) first,
+  then every language the bundled catalog can serve — and the model list's language
+  filter is a pick list over the same set, so the list can be narrowed to the languages
+  that actually matter here. Selecting a model never blocks on the language: a model that
+  cannot serve the configured language stays selectable, warns on its card, and runs
+  without a language hint (the engine's hint spelling follows what the loaded GGUF
+  advertises — `de-DE` for Nemotron 3.5, bare `de` for Voxtral). A change the app cannot
+  apply (a failed config write) keeps the previous value and says why right there in that
   section. The
-  model section names the compute backend the configured model runs on — the engine's
-  report once a model is loaded (`Vulkan — <device>`), the boot-time device probe
-  before that, marked `(expected)`; a CPU fallback keeps its reason on screen (FR-005).
-- The settings window's **Microphone** section lists `System default` first, then every
-  capture device the audio backend can open *at that moment* (name plus technical
-  identifier), and stores the pick in the `input_device` key; the list is rebuilt on every
-  visit to the window (no refresh control, no background watcher). A configured device that
-  is currently unavailable stays visible, marked `currently unavailable`, and a recording
-  that cannot resolve or open it transparently falls back to the system default — the
-  identifier and the cause go to the log, never to the UI. A recording in progress keeps
-  the device it started on.
+  model section shows the selected model's load lifecycle: `Loading <model>…` while a
+  load or reload is in flight, `Backend  Vulkan — <device>` once it is resident (a CPU
+  fallback keeps its reason on screen, FR-005), `<model> is not loaded — the next
+  dictation loads it` after an automatic unload, and `Load failed — <model>` with the
+  reason when a load fails. Below it, the **Unload idle model** card picks the idle
+  timeout (Never, 1, 5, 15, 30 or 60 minutes, default 15): once the model has been idle
+  that long its memory is released, and the next dictation keeps recording while it
+  loads again.
+- The settings window's **Microphone** section is one pick list: `System default` first, then
+  every capture device the audio backend can open *at that moment* (name plus technical
+  identifier on the option line), and picking one stores it in the `input_device` key. The list
+  is rebuilt on every visit to the window (no refresh control, no background watcher). A
+  configured device that is currently unavailable stays in the list, marked `currently
+  unavailable`, and a recording that cannot resolve or open it transparently falls back to the
+  system default — the identifier and the cause go to the log, never to the UI. A recording in
+  progress keeps the device it started on.
 - The engine reads the language tag the model emits per segment (`<en-US>`, with
   `keep_special_tags` on) and strips it before anything user-visible sees the text, so
   FR-007 still holds: neither the overlay, nor the clipboard, nor the synthesized
@@ -276,7 +301,27 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 
 - `assets/Inter-Regular.ttf` — Inter, SIL Open Font License 1.1 (see
   `assets/Inter-LICENSE.txt`), embedded into the binary and used for the overlay text.
-- `assets/lingua-64.png` — the tray window icon, also embedded.
+- `assets/icon/hicolor/scalable/apps/lingua.svg` — the icon master: the tile in the
+  palette's accent colour with the motif in the on-accent ink, derived from the SVG Repo
+  artwork *speech-right*. Every raster is rendered from this one file with
+  `rsvg-convert`, so the project gains no build-time rasterizer:
+
+  ```sh
+  for n in 16 24 32 48 64 128 256; do
+    rsvg-convert -w $n -h $n assets/icon/hicolor/scalable/apps/lingua.svg \
+      -o assets/icon/hicolor/${n}x${n}/apps/lingua.png
+  done
+  ```
+- `assets/icon/hicolor/<size>/apps/lingua.png` — the 8-bit RGBA set at 16, 24, 32, 48,
+  64, 128 and 256 px plus the scalable SVG, in the freedesktop hicolor layout under the
+  single lowercase name `lingua`.
+- `assets/icon/hicolor/256x256/apps/lingua.png` — the same file the binary embeds as
+  its tray pixmap and window icon; a decode failure only logs a warning and the daemon
+  keeps running.
+- `assets/icon/lingua.desktop` and `./install-desktop.sh` — the desktop entry
+  (`Icon=lingua`, `StartupWMClass=lingua`) and the one command that copies it plus the
+  icon set into `${XDG_DATA_HOME:-~/.local/share}`; it rewrites `Exec` to this
+  checkout's `target/release/lingua`, needs no root and is safe to re-run.
 
 ## Verification quick reference
 

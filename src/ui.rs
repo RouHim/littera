@@ -3,13 +3,13 @@
 
 use std::sync::LazyLock;
 
-use iced::font::Weight;
+use iced::font::{Family, Weight};
 use iced::keyboard::{Event as KeyEvent, key};
 use iced::widget::text::Wrapping;
 use iced::widget::{button, container, progress_bar, scrollable, text};
 use iced::{Background, Element, Font, Length, Padding, Theme, border, window};
 
-use crate::app::{App, AppEvent};
+use crate::app::{App, AppEvent, ModelStatus};
 use crate::audio;
 use crate::config::{Config, Language};
 use crate::diagnostics::Check;
@@ -17,27 +17,42 @@ use crate::hotkey::{self, KeyToken, Modifier};
 use crate::model_catalog::{self, Selection};
 use crate::models;
 
-pub const ICON_PNG: &[u8] = include_bytes!("../assets/lingua-64.png");
+/// The embedded application icon: the 256-px rendering of the icon master
+/// (`assets/icon/hicolor/scalable/apps/lingua.svg`), and the single source for
+/// both the tray pixmap and the window icon (FR-005).
+pub const ICON_PNG: &[u8] = include_bytes!("../assets/icon/hicolor/256x256/apps/lingua.png");
 
-/// The embedded application icon as straight (non-premultiplied) RGBA8,
-/// decoded once on first use.
+/// The embedded value face — Inter Regular (SIL OFL 1.1, see
+/// `assets/Inter-LICENSE.txt`). Registered with iced in `run_daemon`; the
+/// overlay rasteriser embeds the same file for its transcript line.
+pub const FONT_VALUE: &[u8] = include_bytes!("../assets/Inter-Regular.ttf");
+
+/// The embedded legend face — Barlow Condensed SemiBold (SIL OFL 1.1, see
+/// `assets/BarlowCondensed-LICENSE.txt`). Every legend, key and heading of the
+/// nameplate vocabulary is set in it, upper-case.
+pub const FONT_LEGEND: &[u8] = include_bytes!("../assets/BarlowCondensed-SemiBold.ttf");
+
+/// Decode a PNG into straight (non-premultiplied) RGBA8 plus its dimensions.
 ///
-/// The asset is a build-time constant, so anything but 8-bit RGBA is a bug in
-/// the repository rather than a runtime condition; callers fall back to "no
-/// icon" and the daemon keeps working.
+/// Returns `None` for anything that is not an 8-bit RGBA PNG: the asset is a
+/// build-time constant, so that is a bug in the repository rather than a
+/// runtime condition, and callers fall back to "no icon".
+fn decode_icon(png: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let decoder = png::Decoder::new(std::io::Cursor::new(png));
+    let mut reader = decoder.read_info().ok()?;
+    let mut pixels = vec![0; reader.output_buffer_size()?];
+    let frame = reader.next_frame(&mut pixels).ok()?;
+    if frame.color_type != png::ColorType::Rgba || frame.bit_depth != png::BitDepth::Eight {
+        tracing::warn!(?frame.color_type, "embedded icon is not 8-bit RGBA");
+        return None;
+    }
+    pixels.truncate(frame.buffer_size());
+    Some((pixels, frame.width, frame.height))
+}
+
+/// The embedded application icon decoded once on first use.
 pub(crate) fn icon_rgba() -> Option<&'static (Vec<u8>, u32, u32)> {
-    static PIXELS: LazyLock<Option<(Vec<u8>, u32, u32)>> = LazyLock::new(|| {
-        let decoder = png::Decoder::new(std::io::Cursor::new(ICON_PNG));
-        let mut reader = decoder.read_info().ok()?;
-        let mut pixels = vec![0; reader.output_buffer_size()?];
-        let frame = reader.next_frame(&mut pixels).ok()?;
-        if frame.color_type != png::ColorType::Rgba || frame.bit_depth != png::BitDepth::Eight {
-            tracing::warn!(?frame.color_type, "embedded icon is not 8-bit RGBA");
-            return None;
-        }
-        pixels.truncate(frame.buffer_size());
-        Some((pixels, frame.width, frame.height))
-    });
+    static PIXELS: LazyLock<Option<(Vec<u8>, u32, u32)>> = LazyLock::new(|| decode_icon(ICON_PNG));
 
     PIXELS.as_ref()
 }
@@ -72,46 +87,53 @@ pub enum Surface {
     Problems,
 }
 
-/// The app palette: one dark foundation for both windows and the overlay
-/// indicator (`overlay_render` reads the same constants through [`palette::rgb8`]).
+/// The app palette: one enamelled-steel foundation for both windows and the
+/// overlay indicator (`overlay_render` reads the same constants through
+/// [`palette::rgb8`]).
 ///
 /// The six roles map onto [`iced::theme::Palette`] (`background`, `text`,
-/// `primary`, `success`, `warning`, `danger`); the surfaces, borders and the two
-/// text tones are the tokens the views build with. Contrast on
-/// [`palette::BACKGROUND`]: text 16.0:1, muted 6.6:1, accent 6.8:1, warning
-/// 8.5:1, error 6.5:1, success 9.4:1 — all above WCAG AA, and `ON_ACCENT`
-/// (7.2:1) is the only label colour allowed on an accent fill.
+/// `primary`, `success`, `warning`, `danger`); the plate, well and borders are
+/// the surfaces the views build with. Contrast on [`palette::BACKGROUND`]:
+/// text 12.4:1, muted 5.7:1, signal 7.6:1, error 4.8:1, success 5.7:1 — all
+/// above WCAG AA, and `ON_ACCENT` (7.6:1) is the only ink allowed on a signal
+/// fill.
 pub mod palette {
     use iced::Color;
 
     // Surfaces.
-    /// Window background.
-    pub const BACKGROUND: Color = Color::from_rgb8(0x1A, 0x1B, 0x26);
-    /// Cards, chips and the segmented navigation.
-    pub const SURFACE: Color = Color::from_rgb8(0x1F, 0x23, 0x35);
-    /// Hovered and pressed surfaces.
-    pub const SURFACE_HOVER: Color = Color::from_rgb8(0x29, 0x2E, 0x42);
-    /// Hairline borders.
-    pub const BORDER: Color = Color::from_rgb8(0x2F, 0x34, 0x48);
-    /// Borders that carry state (hover, selection).
-    pub const BORDER_STRONG: Color = Color::from_rgb8(0x3B, 0x42, 0x61);
+    /// Window background: flat enamelled steel.
+    pub const BACKGROUND: Color = Color::from_rgb8(0x22, 0x28, 0x2E);
+    /// The plate and field-row fill, one step lifted from the ground.
+    pub const SURFACE: Color = Color::from_rgb8(0x26, 0x2D, 0x34);
+    /// Recessed interiors: search fields and pickers.
+    pub const WELL: Color = Color::from_rgb8(0x1D, 0x23, 0x29);
+    /// Hover fills, as a wash of silk.
+    pub const SURFACE_HOVER: Color = alpha(TEXT, 0.07);
+    /// Hairline borders: the field grid.
+    pub const BORDER: Color = alpha(TEXT, 0.26);
+    /// Borders that carry state (hover, selection, the plate's frame).
+    pub const BORDER_STRONG: Color = alpha(TEXT, 0.55);
 
     // Text tones.
-    /// Primary text.
-    pub const TEXT: Color = Color::from_rgb8(0xF2, 0xF2, 0xF7);
-    /// Secondary text: labels, hints, details.
-    pub const MUTED: Color = Color::from_rgb8(0x9A, 0xA0, 0xB4);
+    /// Primary ink: silk-screened legends and values.
+    pub const TEXT: Color = Color::from_rgb8(0xE9, 0xEB, 0xE4);
+    /// Secondary ink: keys, hints, details.
+    pub const MUTED: Color = Color::from_rgb8(0x9A, 0xA3, 0x9B);
 
-    // Accent and semantic roles.
-    /// The single accent: selection, primary actions, focus.
-    pub const ACCENT: Color = Color::from_rgb8(0x7A, 0xA2, 0xF7);
-    pub const ACCENT_HOVER: Color = Color::from_rgb8(0x93, 0xB4, 0xF9);
-    pub const ACCENT_PRESSED: Color = Color::from_rgb8(0x5F, 0x87, 0xD6);
-    /// The label colour for accent fills; white on the accent would be 2.5:1.
-    pub const ON_ACCENT: Color = Color::from_rgb8(0x16, 0x16, 0x1E);
-    pub const SUCCESS: Color = Color::from_rgb8(0x9E, 0xCE, 0x6A);
-    pub const WARNING: Color = Color::from_rgb8(0xE0, 0xAF, 0x68);
-    pub const ERROR: Color = Color::from_rgb8(0xF7, 0x76, 0x8E);
+    // Signal and semantic roles.
+    /// The single signal colour: action and attention.
+    pub const ACCENT: Color = Color::from_rgb8(0xE3, 0xB2, 0x3C);
+    pub const ACCENT_HOVER: Color = Color::from_rgb8(0xED, 0xC1, 0x58);
+    pub const ACCENT_PRESSED: Color = Color::from_rgb8(0xC9, 0x9A, 0x2E);
+    /// The ink for signal fills; silk on the signal colour would be 3.5:1.
+    pub const ON_ACCENT: Color = Color::from_rgb8(0x22, 0x28, 0x2E);
+    pub const SUCCESS: Color = Color::from_rgb8(0x6F, 0xAF, 0x74);
+    /// The signal colour also carries caution: the placard's shape, not a
+    /// second hue, is what separates an attention warning from an action.
+    pub const WARNING: Color = Color::from_rgb8(0xE3, 0xB2, 0x3C);
+    pub const ERROR: Color = Color::from_rgb8(0xE0, 0x73, 0x61);
+    /// The stop red for fills and heavy bars; text uses [`ERROR`].
+    pub const ERROR_FILL: Color = Color::from_rgb8(0xC1, 0x4B, 0x3A);
 
     /// [`Color`] with a different alpha channel.
     pub const fn alpha(color: Color, a: f32) -> Color {
@@ -144,25 +166,30 @@ pub mod metrics {
     /// The gap between settings sections.
     pub const SPACE_XXL: f32 = 32.0;
 
-    // Shape: controls are rounded, surfaces more so, step chips are pills.
-    pub const RADIUS_CONTROL: f32 = 8.0;
-    pub const RADIUS_SURFACE: f32 = 12.0;
+    // Shape: the plate and its fields are square-stamped; only the floating
+    // overlay pill and the onboarding step chips round.
+    pub const RADIUS_CONTROL: f32 = 0.0;
+    pub const RADIUS_SURFACE: f32 = 0.0;
     /// The floating overlay indicator (`overlay_render`).
     pub const RADIUS_OVERLAY: f32 = 16.0;
     pub const RADIUS_PILL: f32 = 999.0;
 
-    // Type scale, logical pixels.
+    // Type scale, logical pixels: one legible ladder. Condensed caps are set a
+    // step above the value size, because caps at the same px read smaller.
     pub const TEXT_CAPTION: f32 = 13.0;
-    pub const TEXT_BODY: f32 = 14.0;
+    pub const TEXT_BODY: f32 = 15.0;
     pub const TEXT_LEAD: f32 = 16.0;
-    pub const TEXT_HEADING: f32 = 18.0;
-    pub const TEXT_TITLE: f32 = 24.0;
+    pub const TEXT_HEADING: f32 = 16.0;
+    pub const TEXT_TITLE: f32 = 22.0;
+
+    /// The label column of a field row: the key locked, the value aligned.
+    pub const FIELD_LABEL_WIDTH: f32 = 96.0;
 
     /// The padding of a labelled button: `[vertical, horizontal]`.
     pub const BUTTON_PADDING: [f32; 2] = [SPACE_SM, SPACE_LG];
 
     // Scrollbar groove and scroller widths.
-    pub const SCROLLBAR_WIDTH: f32 = 10.0;
+    pub const SCROLLBAR_WIDTH: f32 = 8.0;
     pub const SCROLLBAR_SCROLLER: f32 = 8.0;
 }
 
@@ -170,6 +197,8 @@ pub mod metrics {
 /// from [`palette`], so nothing is left at a built-in default.
 pub mod style {
     use super::{Tone, metrics, palette};
+    use iced::widget::overlay::menu as menu_widget;
+    use iced::widget::pick_list as pick_list_widget;
     use iced::widget::radio as radio_widget;
     use iced::widget::scrollable as scrollable_widget;
     use iced::widget::text_input as text_input_widget;
@@ -184,79 +213,105 @@ pub mod style {
         border::rounded(radius).color(color).width(1.0)
     }
 
-    /// Primary action: accent fill with a dark label.
+    /// Primary action: a stamped signal frame; it fills on hover.
     pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
-        let (background, text_color) = match status {
-            button::Status::Active => (palette::ACCENT, palette::ON_ACCENT),
-            button::Status::Hovered => (palette::ACCENT_HOVER, palette::ON_ACCENT),
-            button::Status::Pressed => (palette::ACCENT_PRESSED, palette::ON_ACCENT),
-            button::Status::Disabled => (palette::SURFACE, palette::MUTED),
-        };
-
-        button::Style {
-            background: fill(background),
-            text_color,
-            border: outline(Color::TRANSPARENT, metrics::RADIUS_CONTROL),
-            ..button::Style::default()
-        }
-    }
-
-    /// Secondary action: surface fill with a visible border.
-    pub fn secondary_button(_theme: &Theme, status: button::Status) -> button::Style {
         let (background, border_color, text_color) = match status {
-            button::Status::Active => (palette::SURFACE, palette::BORDER_STRONG, palette::TEXT),
-            button::Status::Hovered => (palette::SURFACE_HOVER, palette::ACCENT, palette::TEXT),
-            button::Status::Pressed => (palette::BACKGROUND, palette::ACCENT, palette::TEXT),
-            button::Status::Disabled => (Color::TRANSPARENT, palette::BORDER, palette::MUTED),
+            button::Status::Active => (None, palette::ACCENT, palette::ACCENT),
+            button::Status::Hovered => (
+                fill(palette::ACCENT_HOVER),
+                palette::ACCENT,
+                palette::ON_ACCENT,
+            ),
+            button::Status::Pressed => (
+                fill(palette::ACCENT_PRESSED),
+                palette::ACCENT_PRESSED,
+                palette::ON_ACCENT,
+            ),
+            button::Status::Disabled => (None, palette::alpha(palette::TEXT, 0.20), palette::MUTED),
         };
 
         button::Style {
-            background: fill(background),
+            background,
             text_color,
             border: outline(border_color, metrics::RADIUS_CONTROL),
             ..button::Style::default()
         }
     }
 
-    /// A link-style button: reads like the value it opens, accents on hover.
-    pub fn link(_theme: &Theme, status: button::Status) -> button::Style {
-        let (background, text_color) = match status {
-            button::Status::Active => (None, palette::TEXT),
-            button::Status::Hovered => (fill(palette::SURFACE_HOVER), palette::ACCENT),
-            button::Status::Pressed => (fill(palette::SURFACE), palette::ACCENT_HOVER),
-            button::Status::Disabled => (None, palette::MUTED),
+    /// Secondary action: a silk frame on the steel.
+    pub fn secondary_button(_theme: &Theme, status: button::Status) -> button::Style {
+        let (background, border_color, text_color) = match status {
+            button::Status::Active => (None, palette::BORDER_STRONG, palette::TEXT),
+            button::Status::Hovered => (fill(palette::SURFACE_HOVER), palette::TEXT, palette::TEXT),
+            button::Status::Pressed => (
+                fill(palette::alpha(palette::TEXT, 0.12)),
+                palette::TEXT,
+                palette::TEXT,
+            ),
+            button::Status::Disabled => (None, palette::alpha(palette::TEXT, 0.20), palette::MUTED),
         };
 
         button::Style {
             background,
+            text_color,
+            border: outline(border_color, metrics::RADIUS_CONTROL),
+            ..button::Style::default()
+        }
+    }
+
+    /// A link-style button: reads like the value it opens, signals on hover.
+    pub fn link(_theme: &Theme, status: button::Status) -> button::Style {
+        let text_color = match status {
+            button::Status::Active => palette::MUTED,
+            button::Status::Hovered => palette::ACCENT,
+            button::Status::Pressed => palette::ACCENT_PRESSED,
+            button::Status::Disabled => palette::MUTED,
+        };
+
+        button::Style {
+            background: None,
             text_color,
             border: outline(Color::TRANSPARENT, metrics::RADIUS_CONTROL),
             ..button::Style::default()
         }
     }
 
-    /// A card surface.
-    pub fn card(_theme: &Theme) -> container::Style {
+    /// The plate: the lifted steel surface every grouped field sits on.
+    pub fn plate(_theme: &Theme) -> container::Style {
         container::Style {
             background: fill(palette::SURFACE),
+            border: outline(palette::BORDER_STRONG, metrics::RADIUS_SURFACE),
+            text_color: Some(palette::TEXT),
+            ..container::Style::default()
+        }
+    }
+
+    /// The plate's inner legend frame: the second hairline of a nameplate.
+    pub fn plate_inner(_theme: &Theme) -> container::Style {
+        container::Style {
+            background: None,
             border: outline(palette::BORDER, metrics::RADIUS_SURFACE),
             text_color: Some(palette::TEXT),
             ..container::Style::default()
         }
     }
 
-    /// The same card with an accent border: the selected model.
+    /// The grouped-row surface ([`plate`], under the name the views use).
+    pub fn card(theme: &Theme) -> container::Style {
+        plate(theme)
+    }
+
+    /// The selected plate: the same surface behind a signal frame.
     pub fn card_selected(theme: &Theme) -> container::Style {
         container::Style {
-            border: outline(
-                palette::alpha(palette::ACCENT, 0.55),
-                metrics::RADIUS_SURFACE,
-            ),
-            ..card(theme)
+            border: border::rounded(metrics::RADIUS_SURFACE)
+                .color(palette::ACCENT)
+                .width(1.5),
+            ..plate(theme)
         }
     }
 
-    /// A row outline without a fill: system-check rows.
+    /// A row outline without a fill: one field of the grid.
     pub fn outline_row(_theme: &Theme) -> container::Style {
         container::Style {
             background: None,
@@ -269,41 +324,45 @@ pub mod style {
     /// A loading placeholder shaped like the row it stands in for.
     pub fn skeleton(_theme: &Theme) -> container::Style {
         container::Style {
-            background: fill(palette::SURFACE),
+            background: fill(palette::alpha(palette::TEXT, 0.05)),
             border: outline(palette::BORDER, metrics::RADIUS_SURFACE),
             ..container::Style::default()
         }
     }
 
-    /// A status panel tinted with its tone.
-    pub fn banner(tone: Tone) -> impl Fn(&Theme) -> container::Style + 'static {
-        let color = tone.color();
+    /// A placard: the tone's wash, its ink and a frame in the same tone — the
+    /// one alarm shape. Failures frame in the stop red.
+    pub fn placard(tone: Tone) -> impl Fn(&Theme) -> container::Style + 'static {
+        let ink = tone.color();
+        let frame = match tone {
+            Tone::Error => palette::ERROR_FILL,
+            _ => ink,
+        };
 
         move |_theme| container::Style {
-            background: fill(palette::alpha(color, 0.14)),
-            border: outline(palette::alpha(color, 0.45), metrics::RADIUS_CONTROL),
-            text_color: Some(color),
+            background: fill(palette::alpha(ink, 0.10)),
+            border: outline(palette::alpha(frame, 0.70), metrics::RADIUS_CONTROL),
+            text_color: Some(ink),
             ..container::Style::default()
         }
     }
 
-    /// Determinate progress (model download). The track is the strong border
-    /// tone so the filled/unfilled boundary stays visible against the bar; the
-    /// percentage next to it carries the exact value.
+    /// Determinate progress (model download). The track is a silk wash so the
+    /// filled/unfilled boundary stays visible; the percentage carries the value.
     pub fn progress(_theme: &Theme) -> progress_bar::Style {
         progress_bar::Style {
-            background: Background::Color(palette::BORDER_STRONG),
+            background: Background::Color(palette::alpha(palette::TEXT, 0.20)),
             bar: Background::Color(palette::ACCENT),
             border: border::rounded(metrics::SPACE_XS / 2.0),
         }
     }
 
-    /// The model-card indicator bars: the same accent, quieter and thin.
+    /// The model-card indicator bars: the same signal, quieter and thin.
     /// Deliberately not the download progress look — these are reference values,
     /// not work in flight.
     pub fn progress_subtle(_theme: &Theme) -> progress_bar::Style {
         progress_bar::Style {
-            background: Background::Color(palette::alpha(palette::BORDER_STRONG, 0.55)),
+            background: Background::Color(palette::alpha(palette::TEXT, 0.12)),
             bar: Background::Color(palette::alpha(palette::ACCENT, 0.7)),
             border: border::rounded(1.0),
         }
@@ -327,7 +386,7 @@ pub mod style {
         }
     }
 
-    /// The model search field: surface fill, accent border while focused.
+    /// A field: the recessed well, signal frame while focused.
     pub fn text_input(
         _theme: &Theme,
         status: text_input_widget::Status,
@@ -341,12 +400,42 @@ pub mod style {
         };
 
         text_input_widget::Style {
-            background: Background::Color(palette::SURFACE),
+            background: Background::Color(palette::WELL),
             border: outline(border_color, metrics::RADIUS_CONTROL),
             icon: palette::MUTED,
             placeholder: palette::MUTED,
             value: palette::TEXT,
             selection: palette::alpha(palette::ACCENT, 0.35),
+        }
+    }
+
+    /// The device picker: the field's well, its border carrying hover and open.
+    pub fn pick_list(_theme: &Theme, status: pick_list_widget::Status) -> pick_list_widget::Style {
+        let border_color = match status {
+            pick_list_widget::Status::Hovered | pick_list_widget::Status::Opened { .. } => {
+                palette::ACCENT
+            }
+            pick_list_widget::Status::Active => palette::BORDER,
+        };
+
+        pick_list_widget::Style {
+            text_color: palette::TEXT,
+            placeholder_color: palette::MUTED,
+            handle_color: palette::MUTED,
+            background: Background::Color(palette::WELL),
+            border: outline(border_color, metrics::RADIUS_CONTROL),
+        }
+    }
+
+    /// The picker's dropdown: one step lifted, no shadow — steel is flat.
+    pub fn pick_list_menu(_theme: &Theme) -> menu_widget::Style {
+        menu_widget::Style {
+            background: Background::Color(palette::SURFACE),
+            border: outline(palette::BORDER_STRONG, metrics::RADIUS_CONTROL),
+            text_color: palette::TEXT,
+            selected_text_color: palette::ON_ACCENT,
+            selected_background: Background::Color(palette::ACCENT),
+            shadow: Shadow::default(),
         }
     }
 
@@ -356,16 +445,16 @@ pub mod style {
         status: scrollable_widget::Status,
     ) -> scrollable_widget::Style {
         let scroller = match status {
-            scrollable_widget::Status::Active { .. } => palette::BORDER_STRONG,
-            scrollable_widget::Status::Hovered { .. }
-            | scrollable_widget::Status::Dragged { .. } => palette::ACCENT,
+            scrollable_widget::Status::Active { .. } => palette::alpha(palette::TEXT, 0.35),
+            scrollable_widget::Status::Hovered { .. } => palette::alpha(palette::TEXT, 0.60),
+            scrollable_widget::Status::Dragged { .. } => palette::ACCENT,
         };
         let rail = scrollable_widget::Rail {
             background: None,
-            border: border::rounded(metrics::SPACE_XS / 2.0),
+            border: border::rounded(metrics::RADIUS_CONTROL),
             scroller: scrollable_widget::Scroller {
                 background: Background::Color(scroller),
-                border: border::rounded(metrics::SPACE_XS / 2.0),
+                border: border::rounded(metrics::RADIUS_CONTROL),
             },
         };
 
@@ -419,6 +508,13 @@ pub fn window_settings(surface: &Surface) -> window::Settings {
         position: window::Position::Centered,
         min_size: Some(iced::Size::new(min_width, min_height)),
         icon: window_icon(),
+        // Match the shipped desktop entry so the compositor ties the running
+        // window to it (FR-008): the same single lowercase token as the entry
+        // basename, `Icon=` and `StartupWMClass=`.
+        platform_specific: window::settings::PlatformSpecific {
+            application_id: crate::config::APP_ID.to_owned(),
+            ..Default::default()
+        },
         ..window::Settings::default()
     }
 }
@@ -809,16 +905,18 @@ impl OnboardingUi {
         model_catalog::artifact(&self.model).unwrap_or_else(model_catalog::default_selection)
     }
 
-    /// FR-002/FR-011: an English-only model cannot transcribe German. The
+    /// FR-002/FR-011: a model that does not serve the chosen language warns. The
     /// warning is informational — it never blocks a step (SC-007).
-    pub fn language_warning(&self) -> Option<&'static str> {
+    pub fn language_warning(&self) -> Option<String> {
         language_warning(self.selection(), self.language)
     }
 }
 
 /// The warning shown when the selected model does not serve the configured
-/// dictation language; `None` means the combination is fine (FR-011).
-pub fn language_warning(selection: Selection, language: Language) -> Option<&'static str> {
+/// dictation language; `None` means the combination is fine (FR-011). The text
+/// names the configured language, so it reads the same for every entry of the
+/// language table.
+pub fn language_warning(selection: Selection, language: Language) -> Option<String> {
     model_catalog::language_warning(selection.variant, language)
 }
 
@@ -869,39 +967,60 @@ impl SettingsUi {
 
 // ------------------------------------------------------------- small widgets
 
-/// The semibold face of the UI font: titles, headings, emphasised labels.
-fn semibold() -> Font {
+/// The legend face: keys, headings and state legends, always upper-case.
+fn legend() -> Font {
     Font {
+        family: Family::Name("Barlow Condensed"),
         weight: Weight::Semibold,
         ..Font::DEFAULT
     }
 }
 
-/// A surface title.
+/// The value face: prose, names and sentences.
+fn value() -> Font {
+    Font {
+        family: Family::Name("Inter"),
+        ..Font::DEFAULT
+    }
+}
+
+/// A surface title: the largest legend.
 pub fn title<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into())
+    text(content.into().to_uppercase())
         .size(metrics::TEXT_TITLE)
-        .font(semibold())
+        .font(legend())
         .color(palette::TEXT)
         .line_height(1.2)
         .into()
 }
 
-/// A section or step heading.
+/// A section heading: a legend over its section.
 pub fn heading<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into())
+    text(content.into().to_uppercase())
         .size(metrics::TEXT_HEADING)
-        .font(semibold())
+        .font(legend())
         .color(palette::TEXT)
         .line_height(1.2)
         .into()
 }
 
-/// An emphasised inline label.
+/// A field key: the small legend that labels the value beside it.
+pub fn key<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
+    text(content.into().to_uppercase())
+        .size(metrics::TEXT_CAPTION)
+        .font(legend())
+        .color(palette::MUTED)
+        .into()
+}
+
+/// An emphasised inline value: the value face, brightened.
 pub fn strong<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_BODY)
-        .font(semibold())
+        .font(Font {
+            weight: Weight::Semibold,
+            ..value()
+        })
         .color(palette::TEXT)
         .into()
 }
@@ -910,6 +1029,7 @@ pub fn strong<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
 pub fn muted<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_CAPTION)
+        .font(value())
         .color(palette::MUTED)
         .into()
 }
@@ -918,6 +1038,7 @@ pub fn muted<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
 pub fn lead<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_BODY)
+        .font(value())
         .color(palette::MUTED)
         .width(Length::Fill)
         .wrapping(Wrapping::WordOrGlyph)
@@ -953,6 +1074,61 @@ pub fn chord<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
         .into()
 }
 
+/// A one-line state caption in its tone's colour — the compact counterpart of
+/// [`banner`], set in the legend face so every state reads the same way.
+pub fn state_tag<M: 'static>(content: impl Into<String>, tone: Tone) -> Element<'static, M> {
+    text(content.into().to_uppercase())
+        .size(metrics::TEXT_CAPTION)
+        .font(legend())
+        .color(tone.color())
+        .into()
+}
+
+/// One state lamp: a signal dot that reads at a glance.
+pub fn lamp<M: 'static>(tone: Tone) -> Element<'static, M> {
+    let color = tone.color();
+    container(iced::widget::space().width(7.0).height(7.0))
+        .style(move |_theme: &Theme| container::Style {
+            background: Some(Background::Color(color)),
+            border: border::rounded(3.5),
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// The designed-off lamp: a hollow ring, never a dimmed dot.
+pub fn lamp_off<M: 'static>() -> Element<'static, M> {
+    container(iced::widget::space().width(7.0).height(7.0))
+        .style(|_theme: &Theme| container::Style {
+            background: None,
+            border: border::rounded(3.5).color(palette::MUTED).width(1.0),
+            ..container::Style::default()
+        })
+        .into()
+}
+
+/// A control legend: the action face every stamped button carries. No colour —
+/// the button's own style inks it.
+pub fn stamp<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
+    text(content.into().to_uppercase())
+        .size(metrics::TEXT_CAPTION)
+        .font(legend())
+        .into()
+}
+
+/// The capability plate: one lifted steel surface with the inner legend frame.
+pub fn plate<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
+    container(
+        container(content)
+            .padding(metrics::SPACE_MD)
+            .style(style::plate_inner),
+    )
+    .padding(metrics::SPACE_XS)
+    .width(Length::Fill)
+    .style(style::plate)
+    .into()
+}
+
 /// A card: one surface, radius and padding for grouped content.
 pub fn card<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
     surface(content, style::card)
@@ -974,18 +1150,19 @@ fn surface<M: 'static>(
         .into()
 }
 
-/// A tinted status banner.
+/// A placard: the tone's wash, frame and ink — the one alarm shape. No edge
+/// stripe; the full frame is what reads as a plate.
 pub fn banner<M: 'static>(content: impl Into<String>, tone: Tone) -> Element<'static, M> {
     container(
         text(content.into())
-            .size(metrics::TEXT_CAPTION)
+            .size(metrics::TEXT_BODY)
             .color(tone.color())
             .width(Length::Fill)
             .wrapping(Wrapping::WordOrGlyph),
     )
     .padding(metrics::SPACE_MD)
     .width(Length::Fill)
-    .style(style::banner(tone))
+    .style(style::placard(tone))
     .into()
 }
 
@@ -1033,8 +1210,9 @@ pub fn step_chip<M: 'static>(
     };
 
     container(
-        text(format!("{number}. {label}"))
+        text(format!("{number}. {label}").to_uppercase())
             .size(metrics::TEXT_CAPTION)
+            .font(legend())
             .color(text_color),
     )
     .padding(Padding {
@@ -1054,6 +1232,70 @@ pub fn step_chip<M: 'static>(
     .into()
 }
 
+/// What a model card is doing right now (FR-002/FR-003/FR-006/SC-008).
+///
+/// One decision, two renderings: the onboarding renders it as the expanded
+/// [`model_panel`], the settings list as one compact line next to the action.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ModelState {
+    /// A transfer for this artifact is running.
+    Downloading { percent: f32 },
+    /// The file is on disk and its SHA-256 is being checked; a transfer only
+    /// starts when the check fails.
+    Verifying,
+    /// The last run failed (the partial file is kept).
+    Failed(String),
+    /// The file is on disk and the engine loaded it.
+    Verified,
+    /// The file is on disk, but it is not the running model.
+    OnDisk,
+    /// No file on disk yet: using the model needs a download.
+    NotDownloaded,
+}
+
+/// The state of one artifact; `verified` is the caller's "the engine reported
+/// this model loaded" flag, which only the surface knows (FR-002/FR-003).
+pub fn model_state(app: &App, selection: Selection, verified: bool) -> ModelState {
+    if let Some(state) = app
+        .download
+        .as_ref()
+        .filter(|state| state.selection.artifact.id == selection.artifact.id)
+    {
+        if let Some(error) = &state.error {
+            return ModelState::Failed(error.clone());
+        }
+        if state.verifying {
+            return ModelState::Verifying;
+        }
+
+        return ModelState::Downloading {
+            percent: state.percent(),
+        };
+    }
+
+    if verified {
+        return ModelState::Verified;
+    }
+
+    let on_disk = models::path_for(selection.artifact)
+        .ok()
+        .is_some_and(|path| path.exists());
+
+    if on_disk {
+        ModelState::OnDisk
+    } else {
+        ModelState::NotDownloaded
+    }
+}
+
+/// Whether another artifact's transfer occupies the pipeline (FR-006/SC-008):
+/// exactly one download runs at a time, so this card's action is unavailable.
+pub fn download_busy_elsewhere(app: &App, artifact: &str) -> bool {
+    app.download
+        .as_ref()
+        .is_some_and(|state| state.is_running() && state.selection.artifact.id != artifact)
+}
+
 /// Model status and progress, shared by onboarding and settings (FR-002/FR-003).
 ///
 /// `download`, `cancel` and `retry` are the surface-specific messages for the
@@ -1067,30 +1309,18 @@ pub fn model_panel<M: Clone + 'static>(
     retry: M,
 ) -> Element<'static, M> {
     let size_label = models::human_size(selection.artifact.size_bytes);
-    let path = models::path_for(selection.artifact).ok();
-    let on_disk = path.as_ref().is_some_and(|path| path.exists());
-    let downloading = app
-        .download
-        .as_ref()
-        .filter(|state| state.selection.artifact.id == selection.artifact.id);
-    // FR-006/SC-008: while one download runs, every other card's action is
-    // unavailable — the running card keeps its own cancel/retry.
-    let busy_elsewhere = app.download.as_ref().is_some_and(|state| {
-        state.is_running() && state.selection.artifact.id != selection.artifact.id
-    });
+    let busy_elsewhere = download_busy_elsewhere(app, selection.artifact.id);
 
-    if let Some(state) = downloading
-        && state.is_running()
-    {
-        if state.verifying {
+    match model_state(app, selection, verified) {
+        ModelState::Verifying => {
             // The artifact is on disk: this run checks the SHA-256 and only
             // starts a transfer when the file fails that check (FR-003).
-            return card(
+            card(
                 iced::widget::column![
                     strong(format!("Verifying the model — {size_label} (SHA-256)")),
                     iced::widget::row![
                         muted("No download — a transfer only starts if the check fails."),
-                        button("Cancel")
+                        button(stamp("Cancel"))
                             .style(style::secondary_button)
                             .on_press(cancel),
                     ]
@@ -1098,36 +1328,35 @@ pub fn model_panel<M: Clone + 'static>(
                     .align_y(iced::Alignment::Center),
                 ]
                 .spacing(metrics::SPACE_MD),
-            );
+            )
         }
+        ModelState::Downloading { percent } => {
+            let row = iced::widget::row![
+                progress_bar(0.0..=100.0, percent)
+                    .length(Length::Fill)
+                    .style(style::progress),
+                text(format!("{percent:.0}%"))
+                    .size(metrics::TEXT_CAPTION)
+                    .font(Font::MONOSPACE)
+                    .color(palette::MUTED),
+                button(stamp("Cancel"))
+                    .style(style::secondary_button)
+                    .on_press(cancel),
+            ]
+            .spacing(metrics::SPACE_MD)
+            .align_y(iced::Alignment::Center);
 
-        let row = iced::widget::row![
-            progress_bar(0.0..=100.0, state.percent())
-                .length(Length::Fill)
-                .style(style::progress),
-            text(format!("{:.0}%", state.percent()))
-                .size(metrics::TEXT_CAPTION)
-                .font(Font::MONOSPACE)
-                .color(palette::MUTED),
-            button("Cancel")
-                .style(style::secondary_button)
-                .on_press(cancel),
-        ]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center);
-
-        return card(
-            iced::widget::column![strong(format!("Downloading the model — {size_label}")), row,]
+            card(
+                iced::widget::column![
+                    strong(format!("Downloading the model — {size_label}")),
+                    row,
+                ]
                 .spacing(metrics::SPACE_MD),
-        );
-    }
-
-    if let Some(state) = downloading
-        && let Some(error) = &state.error
-    {
-        return card(
+            )
+        }
+        ModelState::Failed(error) => card(
             iced::widget::column![
-                banner(error.clone(), Tone::Error),
+                banner(error, Tone::Error),
                 iced::widget::row![
                     action_button("Retry", retry, busy_elsewhere, style::secondary_button),
                     muted("The partial download is kept and resumed."),
@@ -1136,42 +1365,43 @@ pub fn model_panel<M: Clone + 'static>(
                 .align_y(iced::Alignment::Center),
             ]
             .spacing(metrics::SPACE_MD),
-        );
+        ),
+        state @ (ModelState::Verified | ModelState::OnDisk | ModelState::NotDownloaded) => {
+            let (status, action) = match state {
+                ModelState::Verified => {
+                    (banner("Verified — ready to use", Tone::Success), "Verify")
+                }
+                ModelState::OnDisk => (
+                    banner(
+                        "Already on disk — verified against its SHA-256 before use",
+                        Tone::Info,
+                    ),
+                    "Verify",
+                ),
+                _ => (
+                    banner(
+                        format!("Not downloaded yet — {size_label} to download"),
+                        Tone::Warning,
+                    ),
+                    "Download",
+                ),
+            };
+
+            card(
+                iced::widget::column![
+                    status,
+                    iced::widget::row![action_button(
+                        action,
+                        download,
+                        busy_elsewhere,
+                        style::primary_button
+                    )]
+                    .spacing(metrics::SPACE_SM),
+                ]
+                .spacing(metrics::SPACE_MD),
+            )
+        }
     }
-
-    let (status, action) = if verified {
-        (banner("Verified — ready to use", Tone::Success), "Verify")
-    } else if on_disk {
-        (
-            banner(
-                "Already on disk — verified against its SHA-256 before use",
-                Tone::Info,
-            ),
-            "Verify",
-        )
-    } else {
-        (
-            banner(
-                format!("Not downloaded yet — {size_label} to download"),
-                Tone::Warning,
-            ),
-            "Download",
-        )
-    };
-
-    card(
-        iced::widget::column![
-            status,
-            iced::widget::row![action_button(
-                action,
-                download,
-                busy_elsewhere,
-                style::primary_button
-            )]
-            .spacing(metrics::SPACE_SM),
-        ]
-        .spacing(metrics::SPACE_MD),
-    )
 }
 
 /// The action of a [`model_panel`], rendered without an `on_press` while another
@@ -1182,7 +1412,7 @@ fn action_button<M: Clone + 'static>(
     disabled: bool,
     style: fn(&Theme, button::Status) -> button::Style,
 ) -> Element<'static, M> {
-    let button = button(label).style(style);
+    let button = button(stamp(label)).style(style);
     if disabled {
         button.into()
     } else {
@@ -1190,19 +1420,93 @@ fn action_button<M: Clone + 'static>(
     }
 }
 
+/// Caption of the state line while the model is not resident (FR-001).
+const STATUS_LABEL: &str = "Status";
+/// Caption of the resident line: it is the backend report (FR-005).
+const BACKEND_LABEL: &str = "Backend";
+/// Prefix of the fallback notice; the reason follows after an em dash (FR-005).
+const BACKEND_FALLBACK: &str = "CPU fallback";
+
+/// The model-state value line and its optional notice (FR-001/FR-002/FR-012).
+#[derive(Debug, PartialEq, Eq)]
+pub struct ModelStateLine {
+    pub caption: &'static str,
+    pub text: String,
+    pub note: Option<(String, Tone)>,
+}
+
+/// The one line that says what the selected model is doing (FR-001).
+///
+/// Indeterminate by construction: neither the loading nor any other state has a
+/// percentage (FR-003).
+pub fn model_state_line(status: &ModelStatus, label: &str) -> ModelStateLine {
+    match status {
+        ModelStatus::Loading => ModelStateLine {
+            caption: STATUS_LABEL,
+            text: format!("Loading {label}…"),
+            note: None,
+        },
+        ModelStatus::Resident(info) => ModelStateLine {
+            caption: BACKEND_LABEL,
+            text: format!("{} — {}", info.backend, info.device),
+            note: info.fallback.as_deref().map(fallback_note),
+        },
+        ModelStatus::NotResident => ModelStateLine {
+            caption: STATUS_LABEL,
+            text: format!("{label} is not loaded — the next dictation loads it"),
+            note: None,
+        },
+        ModelStatus::Failed(reason) => ModelStateLine {
+            caption: STATUS_LABEL,
+            text: format!("Load failed — {label}"),
+            note: Some((reason.clone(), Tone::Error)),
+        },
+    }
+}
+
+/// FR-005: a fallback is never silent — this is the reason the GPU path was
+/// abandoned, spelled the same way in the engine's notice.
+fn fallback_note(reason: &str) -> (String, Tone) {
+    (format!("{BACKEND_FALLBACK} — {reason}"), Tone::Warning)
+}
+
+/// The selected model's load lifecycle as one card (FR-001/FR-002/FR-012),
+/// shared by the settings model section and the onboarding model card.
+///
+/// `None` when `selection` is not the model the app loads: a card for another
+/// model must not claim the running model's state.
+pub fn model_status_card<M: 'static>(
+    app: &App,
+    selection: Selection,
+) -> Option<Element<'static, M>> {
+    if app.model.artifact.id != selection.artifact.id {
+        return None;
+    }
+    let line = model_state_line(&app.model_status, &selection.label());
+    let mut body = iced::widget::column![
+        iced::widget::column![key::<M>(line.caption), mono::<M>(line.text)]
+            .spacing(metrics::SPACE_XS),
+    ]
+    .spacing(metrics::SPACE_MD);
+    if let Some((note, tone)) = line.note {
+        body = body.push(banner(note, tone));
+    }
+    Some(card(body))
+}
+
 /// One system-check row: status, detail and remediation (FR-014).
 pub fn check_row<M: 'static>(check: &Check) -> Element<'static, M> {
     let (tone, marker) = if check.ok {
-        (Tone::Success, "[ok]")
+        (Tone::Success, "ok")
     } else {
-        (Tone::Error, "[fail]")
+        (Tone::Error, "fail")
     };
 
     let mut body = iced::widget::column![
         iced::widget::row![
-            text(marker)
+            text(marker.to_uppercase())
                 .size(metrics::TEXT_CAPTION)
-                .font(Font::MONOSPACE)
+                .font(legend())
                 .color(tone.color()),
             strong(check.name.to_owned()),
         ]
@@ -1229,6 +1533,13 @@ mod tests {
 
     fn physical(code: key::Code) -> key::Physical {
         key::Physical::Code(code)
+    }
+
+    /// FR-007/SC-005: a broken embedded icon only degrades to "no icon".
+    #[test]
+    fn undecodable_icon_bytes_yield_none() {
+        assert!(decode_icon(b"not a png").is_none());
+        assert!(decode_icon(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).is_none());
     }
 
     #[test]
@@ -1297,14 +1608,17 @@ mod tests {
             model_catalog::artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("offered");
 
         assert_eq!(
-            language_warning(english, Language::DeDe),
-            Some("The English-only model cannot transcribe German — choose a multilingual model.")
+            language_warning(english, Language::new("de-DE")),
+            Some(
+                "The selected model cannot transcribe German — choose a different model."
+                    .to_owned()
+            )
         );
         // Auto-detect fits every variant: the model picks the language itself.
-        assert_eq!(language_warning(english, Language::Auto), None);
-        assert_eq!(language_warning(english, Language::EnUs), None);
-        assert_eq!(language_warning(german, Language::DeDe), None);
-        assert_eq!(language_warning(german, Language::Auto), None);
+        assert_eq!(language_warning(english, Language::AUTO), None);
+        assert_eq!(language_warning(english, Language::new("en-US")), None);
+        assert_eq!(language_warning(german, Language::new("de-DE")), None);
+        assert_eq!(language_warning(german, Language::AUTO), None);
 
         // A warning is informational: the selection it describes stays valid and
         // the warning never replaces it.
@@ -1324,6 +1638,75 @@ mod tests {
         assert_eq!(
             Step::ALL.map(Step::title),
             ["Model", "Language", "Key binding", "System check"]
+        );
+    }
+
+    #[test]
+    fn model_state_line_pins_the_four_states() {
+        let label = "Nemotron 3.5 ASR Streaming 0.6B — Q8_0";
+        let info = |fallback: Option<&str>| crate::engine::EngineInfo {
+            backend: "Vulkan".to_owned(),
+            device: "AMD Radeon RX 6950 XT (RADV NAVI21)".to_owned(),
+            fallback: fallback.map(str::to_owned),
+        };
+        let backend_text = "Vulkan — AMD Radeon RX 6950 XT (RADV NAVI21)".to_owned();
+
+        // FR-001/FR-005: resident names the active backend and device.
+        assert_eq!(
+            model_state_line(&ModelStatus::Resident(info(None)), label),
+            ModelStateLine {
+                caption: "Backend",
+                text: backend_text.clone(),
+                note: None,
+            }
+        );
+        // A CPU fallback keeps its reason (FR-005) under the same state.
+        assert_eq!(
+            model_state_line(
+                &ModelStatus::Resident(info(Some("failed to initialize the Vulkan backend"))),
+                label
+            ),
+            ModelStateLine {
+                caption: "Backend",
+                text: backend_text,
+                note: Some((
+                    "CPU fallback — failed to initialize the Vulkan backend".to_owned(),
+                    Tone::Warning,
+                )),
+            }
+        );
+        // FR-002/FR-003: loading names the model and has no percentage.
+        assert_eq!(
+            model_state_line(&ModelStatus::Loading, label),
+            ModelStateLine {
+                caption: "Status",
+                text: format!("Loading {label}…"),
+                note: None,
+            }
+        );
+        // FR-012: not resident states that the next dictation loads it.
+        assert_eq!(
+            model_state_line(&ModelStatus::NotResident, label),
+            ModelStateLine {
+                caption: "Status",
+                text: format!("{label} is not loaded — the next dictation loads it"),
+                note: None,
+            }
+        );
+        // FR-016/Scenario 1.3: the failure carries its reason, never a stale backend.
+        assert_eq!(
+            model_state_line(
+                &ModelStatus::Failed("model load failed for /tmp/x.gguf: boom".to_owned()),
+                label
+            ),
+            ModelStateLine {
+                caption: "Status",
+                text: format!("Load failed — {label}"),
+                note: Some((
+                    "model load failed for /tmp/x.gguf: boom".to_owned(),
+                    Tone::Error,
+                )),
+            }
         );
     }
 }

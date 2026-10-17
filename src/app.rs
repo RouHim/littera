@@ -151,6 +151,22 @@ pub enum DictationState {
     Failed(String),
 }
 
+/// The selected model's in-memory lifecycle (FR-001), independent of the
+/// artifact's download state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ModelStatus {
+    /// A load or reload is in flight; indeterminate by definition — there is no
+    /// progress to report (FR-002/FR-003).
+    Loading,
+    /// In memory and usable; the report names the backend, device and any
+    /// CPU-fallback reason.
+    Resident(engine::EngineInfo),
+    /// On disk but not in memory; the next dictation loads it (FR-012).
+    NotResident,
+    /// The last load failed; `String` is the reason. The next use retries (FR-016).
+    Failed(String),
+}
+
 /// Side effects the machine asks [`App`] to carry out, in order.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DictationEffect {
@@ -457,8 +473,12 @@ pub struct App {
     /// The active variant/artifact; the config persists its artifact id (FR-008).
     pub model: Selection,
     pub model_path: PathBuf,
-    pub engine_info: Option<engine::EngineInfo>,
-    pub engine_error: Option<String>,
+    /// The selected model's load lifecycle (FR-001); the settings model section
+    /// and the onboarding model card render it.
+    pub model_status: ModelStatus,
+    /// When the resident model last served (or became) idle — the unload
+    /// countdown runs from here and resets at every dictation end (FR-008).
+    model_idle_since: Option<Instant>,
     pub probe_info: Option<engine::EngineInfo>,
     pub probe_error: Option<String>,
 
@@ -548,6 +568,21 @@ pub fn download_is_stale(configured: &str, selection: Selection, started_with: &
     configured != selection.artifact.id && configured != started_with
 }
 
+/// Whether the resident model is due for the automatic unload (FR-008/FR-009).
+///
+/// The countdown only runs for a resident model whose timeout is not Never, with
+/// the machine Idle (no recording, final, insert or terminal notice in flight)
+/// and no download or verification running; anything else defers the unload.
+fn unload_due(
+    resident: bool,
+    machine_idle: bool,
+    download_busy: bool,
+    timeout: Option<Duration>,
+    idle_for: Duration,
+) -> bool {
+    resident && machine_idle && !download_busy && timeout.is_some_and(|timeout| idle_for >= timeout)
+}
+
 impl App {
     /// iced boot: build every subsystem and the initial task set.
     pub fn boot() -> (Self, Task<Message>) {
@@ -592,6 +627,15 @@ impl App {
 
         let (inserter, paste_note) = inserter::select(Arc::clone(&clipboard));
 
+        // The preload below is sent in this function, so a model file that exists
+        // is loading from the first frame on (FR-002); without a file there is
+        // nothing to load yet.
+        let model_status = if model_path.exists() {
+            ModelStatus::Loading
+        } else {
+            ModelStatus::NotResident
+        };
+
         let (overlay_backend, overlay_reason) = overlay::select_backend();
         let overlay = match overlay::spawn(overlay_backend) {
             Ok(presenter) => presenter,
@@ -609,8 +653,8 @@ impl App {
             engine,
             model: selection,
             model_path,
-            engine_info: None,
-            engine_error: None,
+            model_status,
+            model_idle_since: None,
             probe_info,
             probe_error,
             capture: None,
@@ -774,7 +818,10 @@ impl App {
 
         match event {
             AppEvent::Hotkey(hotkey::HotkeyEvent::Press) => {
-                if self.engine_info.is_none() {
+                // FR-004/FR-005: a model that is on disk but not resident is
+                // loaded on demand — recording starts now and the engine buffers
+                // the audio. Only a missing file takes the download path.
+                if !self.model_path.exists() {
                     return self.require_model();
                 }
                 let effects = self.machine.hotkey(hotkey::HotkeyEvent::Press, now);
@@ -806,6 +853,7 @@ impl App {
                 if self.machine.is_active() {
                     self.refresh_overlay(false);
                 }
+                self.maybe_unload_model(now);
                 tasks
             }
             AppEvent::IpcOpenSettings => vec![self.open_surface(ui::Surface::Settings)],
@@ -898,7 +946,22 @@ impl App {
         let now = Instant::now();
 
         match event {
-            engine::EngineEvent::Ready(info) => {
+            engine::EngineEvent::Loading { path } => {
+                if path != self.model_path {
+                    tracing::debug!(path = %path.display(), "ignoring a load event for a superseded model");
+                    return Vec::new();
+                }
+                self.model_status = ModelStatus::Loading;
+                self.model_idle_since = None;
+                self.refresh_checks();
+                self.refresh_overlay(true);
+                Vec::new()
+            }
+            engine::EngineEvent::Ready { path, info } => {
+                if path != self.model_path {
+                    tracing::debug!(path = %path.display(), "ignoring a ready event for a superseded model");
+                    return Vec::new();
+                }
                 tracing::info!(
                     backend = info.backend,
                     device = info.device,
@@ -910,10 +973,11 @@ impl App {
                     // settings diagnostics tab is gone.
                     self.set_notice(format!("Running on the CPU backend — {fallback}"));
                 }
-                self.engine_info = Some(info.clone());
-                self.engine_error = None;
+                self.model_status = ModelStatus::Resident(info);
+                self.model_idle_since = Some(now);
                 self.refresh_checks();
                 self.refresh_tray();
+                self.refresh_overlay(true);
                 let mut tasks = Vec::new();
                 if let Some(open) = self.evaluate_startup_problems() {
                     tasks.push(open);
@@ -923,11 +987,34 @@ impl App {
                 }
                 tasks
             }
+            engine::EngineEvent::LoadFailed { path, message } => {
+                if path != self.model_path {
+                    tracing::debug!(path = %path.display(), "ignoring a failed load of a superseded model");
+                    return Vec::new();
+                }
+                self.model_status = ModelStatus::Failed(message.clone());
+                self.model_idle_since = None;
+                self.engine_failure(message, now)
+            }
+            engine::EngineEvent::Unloaded => {
+                // The single event channel and its one pump thread preserve
+                // order, so an `Unloaded` for an accepted request always
+                // precedes the `Loading` of a dictation that started after it:
+                // the status can never fall back to resident.
+                self.model_status = ModelStatus::NotResident;
+                self.model_idle_since = None;
+                self.refresh_checks();
+                self.refresh_overlay(true);
+                Vec::new()
+            }
             engine::EngineEvent::Partial { text } => {
                 let effects = self.machine.partial(text);
                 self.run(effects)
             }
             engine::EngineEvent::Final { text, .. } => {
+                // The countdown starts again from the moment the dictation ends
+                // (FR-008).
+                self.model_idle_since = Some(now);
                 let effects = self.machine.final_text(text, now);
                 self.run(effects)
             }
@@ -936,17 +1023,56 @@ impl App {
                 self.run(effects)
             }
             engine::EngineEvent::Failed { message } => {
-                tracing::error!(message, "engine failure (recording discarded)");
-                self.engine_error = Some(message.clone());
-                self.refresh_checks();
-                let effects = self.machine.failed(message, now);
-                let mut tasks = self.run(effects);
-                if let Some(open) = self.evaluate_startup_problems() {
-                    tasks.push(open);
-                }
-                tasks
+                self.model_idle_since = Some(now);
+                self.engine_failure(message, now)
             }
         }
+    }
+
+    /// The failure handling a discarded dictation needs: the reason, the discarded
+    /// recording and the startup problem notice (FR-016).
+    fn engine_failure(&mut self, message: String, now: Instant) -> Vec<Task<Message>> {
+        tracing::error!(message, "engine failure (recording discarded)");
+        self.refresh_checks();
+        let effects = self.machine.failed(message, now);
+        let mut tasks = self.run(effects);
+        if let Some(open) = self.evaluate_startup_problems() {
+            tasks.push(open);
+        }
+        tasks
+    }
+
+    /// Whether the idle countdown is running (FR-010): a model is resident and
+    /// the configured timeout is not Never. Drives the 1 s ticker.
+    fn unload_countdown_running(&self) -> bool {
+        matches!(self.model_status, ModelStatus::Resident(_))
+            && self.cfg.snapshot().idle_unload.timeout().is_some()
+    }
+
+    /// Release the resident model once the configured idle timeout elapsed
+    /// (FR-008…FR-011). Repeats every tick until the engine answers, so a busy
+    /// worker only defers the unload.
+    ///
+    /// The countdown lives here and not in the engine worker: the app owns the
+    /// config, the download state and the pure dictation machine the decision
+    /// (FR-009) is gated on.
+    fn maybe_unload_model(&mut self, now: Instant) {
+        let resident = matches!(self.model_status, ModelStatus::Resident(_));
+        let idle_for = self
+            .model_idle_since
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since));
+        let due = unload_due(
+            resident,
+            self.machine.state() == &DictationState::Idle,
+            download_in_flight(self.download.as_ref()),
+            self.cfg.snapshot().idle_unload.timeout(),
+            idle_for,
+        );
+        if !due {
+            return;
+        }
+        tracing::info!(idle = ?idle_for, "idle timeout elapsed; releasing the model");
+        self.engine.send(engine::EngineCmd::Unload);
     }
 
     /// Carry out the machine's effects in order.
@@ -1040,7 +1166,10 @@ impl App {
 
         let (state, elapsed, level, text) = match self.machine.state() {
             DictationState::Recording => (
-                if self.machine.is_queued() {
+                if matches!(self.model_status, ModelStatus::Loading) {
+                    // FR-004: recording has started, the model is still coming up.
+                    overlay::OverlayState::LoadingModel(self.model.label())
+                } else if self.machine.is_queued() {
                     overlay::OverlayState::Queued
                 } else {
                     overlay::OverlayState::Recording
@@ -1050,7 +1179,11 @@ impl App {
                 self.machine.partial_text().to_owned(),
             ),
             DictationState::AwaitingFinal => (
-                overlay::OverlayState::Transcribing,
+                if matches!(self.model_status, ModelStatus::Loading) {
+                    overlay::OverlayState::LoadingModel(self.model.label())
+                } else {
+                    overlay::OverlayState::Transcribing
+                },
                 Duration::ZERO,
                 0.0,
                 self.machine.partial_text().to_owned(),
@@ -1161,8 +1294,8 @@ impl App {
         self.refresh_overlay(true);
     }
 
-    /// The model is not loaded yet: start (or report) the download instead of
-    /// recording into nothing (FR-003, Scenario 1.2).
+    /// The model file is missing: start (or report) the download instead of
+    /// recording into nothing (FR-005, Scenario 1.2).
     fn require_model(&mut self) -> Vec<Task<Message>> {
         if let Some(download) = &self.download
             && download.is_running()
@@ -1364,19 +1497,17 @@ impl App {
     /// Rebuild the system-check list (FR-014/FR-022).
     pub fn refresh_checks(&mut self) {
         let config = self.cfg.snapshot();
+        let (engine, engine_error) = match &self.model_status {
+            ModelStatus::Resident(info) => (Some(info.clone()), None),
+            ModelStatus::Failed(reason) => (None, Some(reason.clone())),
+            ModelStatus::Loading | ModelStatus::NotResident => (None, None),
+        };
         let state = diagnostics::State {
             binding: self.binding.clone(),
             hotkey_error: self.hotkey_error.clone(),
             device_ok: hotkey::device_available(),
-            engine: self
-                .engine_info
-                .as_ref()
-                .or(self.probe_info.as_ref())
-                .cloned(),
-            engine_error: self
-                .engine_error
-                .clone()
-                .or_else(|| self.probe_error.clone()),
+            engine: engine.or_else(|| self.probe_info.clone()),
+            engine_error: engine_error.or_else(|| self.probe_error.clone()),
             overlay_backend: self.overlay_backend,
             overlay_reason: self.overlay_reason.clone(),
         };
@@ -1399,7 +1530,12 @@ impl App {
         if self.binding.is_none() && self.hotkey_error.is_none() {
             return None;
         }
-        if self.model_path.exists() && self.engine_info.is_none() && self.engine_error.is_none() {
+        if self.model_path.exists()
+            && !matches!(
+                self.model_status,
+                ModelStatus::Resident(_) | ModelStatus::Failed(_)
+            )
+        {
             return None;
         }
 
@@ -1686,6 +1822,12 @@ impl App {
             subscriptions.push(
                 iced::time::every(Duration::from_millis(100))
                     .map(|_| Message::Event(AppEvent::Tick)),
+            );
+        } else if self.unload_countdown_running() {
+            // FR-010: the countdown runs while the model is resident, whether or
+            // not a window is open; 1 s is far inside SC-001's 30 s window.
+            subscriptions.push(
+                iced::time::every(Duration::from_secs(1)).map(|_| Message::Event(AppEvent::Tick)),
             );
         }
 
@@ -2126,5 +2268,36 @@ mod tests {
             }
         };
         assert!(!download_in_flight(Some(&finished)));
+    }
+
+    #[test]
+    fn the_idle_unload_needs_a_resident_model_and_an_idle_engine() {
+        let timeout = Some(Duration::from_secs(15 * 60));
+        let elapsed = Duration::from_secs(15 * 60);
+
+        assert!(unload_due(true, true, false, timeout, elapsed));
+        assert!(
+            !unload_due(false, true, false, timeout, elapsed),
+            "not resident"
+        );
+        assert!(
+            !unload_due(true, false, false, timeout, elapsed),
+            "dictation in flight"
+        );
+        assert!(
+            !unload_due(true, true, true, timeout, elapsed),
+            "download running"
+        );
+        assert!(!unload_due(true, true, false, None, elapsed), "Never");
+        assert!(
+            !unload_due(
+                true,
+                true,
+                false,
+                timeout,
+                elapsed - Duration::from_millis(1)
+            ),
+            "one tick early"
+        );
     }
 }

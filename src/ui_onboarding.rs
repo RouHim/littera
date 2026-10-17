@@ -1,6 +1,6 @@
 //! Onboarding surface (FR-001/FR-002/FR-009/FR-014, Scenario 1).
 
-use iced::widget::{Space, button, column, radio, row, scrollable};
+use iced::widget::{Space, button, column, pick_list, radio, row, scrollable};
 use iced::{Element, Length, Task};
 
 use crate::app::{App, AppEvent};
@@ -167,7 +167,7 @@ fn model_step(app: &App) -> Element<'_, Action> {
             .text_size(metrics::TEXT_BODY)
             .spacing(metrics::SPACE_SM),
             Space::new().width(Length::Fill),
-            ui::muted::<Action>("Download size"),
+            ui::key::<Action>("Download size"),
             ui::data(models::human_size(selection.artifact.size_bytes)),
         ]
         .spacing(metrics::SPACE_SM)
@@ -184,6 +184,9 @@ fn model_step(app: &App) -> Element<'_, Action> {
                 Action::CancelDownload,
                 Action::RetryDownload,
             ));
+            if let Some(state) = ui::model_status_card::<Action>(app, selection) {
+                body = body.push(state);
+            }
             if let Some(warning) = model_catalog::language_warning(selection.variant, ui.language) {
                 // Informational only: the model stays selectable (FR-011).
                 body = body.push(ui::banner(warning, Tone::Warning));
@@ -212,23 +215,17 @@ fn model_step(app: &App) -> Element<'_, Action> {
 fn language_step(app: &App) -> Element<'_, Action> {
     let ui = &app.onboarding;
 
-    let mut options = column![].spacing(metrics::SPACE_MD);
-    for language in Language::ALL {
-        options = options.push(
-            radio(
-                format!("{}  ({})", language.display_name(), language.label()),
-                language,
-                Some(ui.language),
-                Action::SelectLanguage,
-            )
-            .style(style::radio)
-            .text_size(metrics::TEXT_BODY)
-            .spacing(metrics::SPACE_SM),
-        );
-    }
+    // FR-007: `Auto-detect` (the default) first, then every language the
+    // catalog can serve — one pick list instead of a fixed short list.
+    let picker = pick_list(Language::ALL, Some(ui.language), Action::SelectLanguage)
+        .width(Length::Fill)
+        .padding(metrics::BUTTON_PADDING)
+        .text_size(metrics::TEXT_BODY)
+        .style(style::pick_list)
+        .menu_style(style::pick_list_menu);
 
     let mut content =
-        column![ui::heading::<Action>("Language"), ui::card(options)].spacing(metrics::SPACE_MD);
+        column![ui::heading::<Action>("Language"), ui::card(picker)].spacing(metrics::SPACE_MD);
 
     if let Some(warning) = ui.language_warning() {
         content = content.push(ui::banner(warning, Tone::Warning));
@@ -274,7 +271,7 @@ fn binding_step(app: &App) -> Element<'_, Action> {
         ui::banner(preview, Tone::Info)
     } else if app.portal_available == Some(true) {
         row![
-            button("Bind…")
+            button(ui::stamp("Bind…"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::BindViaPortal),
@@ -285,7 +282,7 @@ fn binding_step(app: &App) -> Element<'_, Action> {
         .into()
     } else {
         row![
-            button("Bind…")
+            button(ui::stamp("Bind…"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::StartCapture),
@@ -352,7 +349,7 @@ fn check_step(app: &App) -> Element<'_, Action> {
         ui::banner("Everything checks out.", Tone::Success)
     });
     content = content.push(row![
-        button("Re-check")
+        button(ui::stamp("Re-check"))
             .style(style::secondary_button)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::Recheck)
@@ -365,23 +362,23 @@ fn footer(app: &App) -> Element<'_, Action> {
     let ui = &app.onboarding;
 
     let back = match ui.step.previous() {
-        Some(_) => button("Back")
+        Some(_) => button(ui::stamp("Back"))
             .style(style::secondary_button)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::Back),
-        None => button("Back")
+        None => button(ui::stamp("Back"))
             .style(style::secondary_button)
             .padding(metrics::BUTTON_PADDING),
     };
 
     let next: Element<'_, Action> = if ui.step.next().is_some() {
-        button("Next")
+        button(ui::stamp("Next"))
             .style(style::primary_button)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::Next)
             .into()
     } else {
-        button("Finish")
+        button(ui::stamp("Finish"))
             .style(style::primary_button)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::Finish)

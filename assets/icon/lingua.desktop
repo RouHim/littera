@@ -1,0 +1,15 @@
+# Shipped as-is for a checkout: install-desktop.sh rewrites Exec to this
+# repository's target/release/lingua (the executable the README documents).
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Lingua
+GenericName=Voice Dictation
+Comment=Local voice dictation for Linux/Wayland
+Exec=lingua
+Icon=lingua
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=dictation;speech;transcription;voice;
+StartupWMClass=lingua
+StartupNotify=false

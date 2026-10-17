@@ -10,7 +10,11 @@
 //! (FR-006, FR-018, Scenario 4.6).
 //!
 //! Nothing here runs on a tokio task: model loading and every compute call are
-//! blocking, long-running native calls.
+//! blocking, long-running native calls. Besides the dictation events, the worker
+//! reports the load lifecycle of whatever model it is asked to load
+//! ([`EngineEvent::Loading`], [`EngineEvent::Ready`], [`EngineEvent::LoadFailed`])
+//! and releases the model on demand ([`EngineCmd::Unload`]), which keeps the
+//! one-thread/one-model invariant intact.
 
 use std::collections::VecDeque;
 use std::ffi::OsStr;
@@ -51,8 +55,18 @@ pub struct EngineInfo {
 /// Events the worker reports to the app over the channel given to [`spawn`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum EngineEvent {
-    /// A model finished loading (also sent after a fallback load).
-    Ready(EngineInfo),
+    /// A load or reload of the model at `path` started (FR-001): the GUI shows the
+    /// indeterminate loading state. Emitted before the file is verified, so a long
+    /// checksum also runs inside the loading state (FR-002/FR-003).
+    Loading { path: PathBuf },
+    /// The model at `path` finished loading (also sent after a fallback load).
+    Ready { path: PathBuf, info: EngineInfo },
+    /// The load of the model at `path` failed; the app reports the reason and the
+    /// worker stays alive for a retry on the next use (FR-001/FR-016).
+    LoadFailed { path: PathBuf, message: String },
+    /// The model was released by the idle timeout; the app shows the not-resident
+    /// state and does not reload on its own (FR-012/FR-014).
+    Unloaded,
     /// Throttled streaming text of the active dictation.
     Partial { text: String },
     /// The finalized text of the dictation that was stopped.
@@ -78,6 +92,9 @@ pub enum EngineCmd {
     Stop,
     /// (Re)load a model from `path` with a new backend preference.
     LoadModel(PathBuf, BackendPreference),
+    /// Release the loaded model — host RAM and, on GPU runs, VRAM — without
+    /// stopping the worker (FR-011); the next `Start` or `LoadModel` loads again.
+    Unload,
     /// Drop the model and stop the worker thread.
     Shutdown,
 }
@@ -253,7 +270,7 @@ pub fn probe_devices(pref: BackendPreference) -> (Option<EngineInfo>, Option<Str
 /// clipboard or the keyboard path.
 fn run_options_for(language: Language, selection: Selection) -> RunOptions {
     let hint = model_catalog::language_hint(selection.variant, language);
-    if language != Language::Auto && hint.is_none() {
+    if !language.is_auto() && hint.is_none() {
         tracing::warn!(
             variant = selection.variant.id,
             language = language.label(),
@@ -601,6 +618,7 @@ impl Worker {
                 EngineCmd::Start { language } => self.handle_start(language),
                 EngineCmd::Audio(samples) => self.handle_audio(samples),
                 EngineCmd::Stop => self.handle_stop(),
+                EngineCmd::Unload => self.handle_unload(),
                 EngineCmd::Shutdown => {
                     tracing::debug!("engine shutdown requested");
                     break;
@@ -621,8 +639,12 @@ impl Worker {
     }
 
     /// Discard the active recording and everything queued behind it.
-    fn fail(&mut self, message: String) {
-        tracing::error!(%message, "dictation failed");
+    fn fail_with(&mut self, event: EngineEvent) {
+        if let EngineEvent::Failed { message } = &event {
+            tracing::error!(message, "dictation failed");
+        } else if let EngineEvent::LoadFailed { path, message } = &event {
+            tracing::error!(path = %path.display(), message, "model load failed");
+        }
         self.active = None;
         if !self.queue.is_empty() {
             tracing::warn!(
@@ -631,7 +653,21 @@ impl Worker {
             );
             self.queue.clear();
         }
-        self.emit(EngineEvent::Failed { message });
+        self.emit(event);
+    }
+
+    /// The failure of a run (stream, session): the model stays loaded.
+    fn fail(&mut self, message: String) {
+        self.fail_with(EngineEvent::Failed { message });
+    }
+
+    /// The failure of a load of `path`; the app's model status learns about it.
+    fn fail_load_for(&mut self, path: PathBuf, message: String) {
+        self.fail_with(EngineEvent::LoadFailed { path, message });
+    }
+
+    fn fail_load(&mut self, message: String) {
+        self.fail_load_for(self.path.clone(), message);
     }
 
     /// Verify the model file before it is loaded or used.
@@ -669,10 +705,13 @@ impl Worker {
         // switch models at runtime (FR-002, Scenario 3.4), so the selection is
         // re-resolved from the file name before any state changes.
         let Some(selection) = selection_for_path(&path) else {
-            self.fail(format!(
-                "unknown model file {} — choose one of the models listed in settings",
-                path.display()
-            ));
+            self.fail_load_for(
+                path.clone(),
+                format!(
+                    "unknown model file {} — choose one of the models listed in settings",
+                    path.display()
+                ),
+            );
             return;
         };
         tracing::info!(
@@ -685,12 +724,15 @@ impl Worker {
         self.pref = pref;
         self.verified = None;
         self.model = None;
+        self.emit(EngineEvent::Loading {
+            path: self.path.clone(),
+        });
         if let Err(message) = self.preflight() {
-            self.fail(message);
+            self.fail_load(message);
             return;
         }
         if let Err(message) = self.load_model() {
-            self.fail(message);
+            self.fail_load(message);
         }
     }
 
@@ -751,7 +793,10 @@ impl Worker {
             "engine ready"
         );
         self.model = Some(model);
-        self.emit(EngineEvent::Ready(info));
+        self.emit(EngineEvent::Ready {
+            path: self.path.clone(),
+            info,
+        });
         Ok(())
     }
 
@@ -769,12 +814,23 @@ impl Worker {
             self.emit(EngineEvent::Queued);
             return;
         }
+        if self.model.is_none() {
+            // Recording starts while the model is not resident (FR-004): the
+            // app shows the loading state, and the audio of this dictation is
+            // buffered by the active job once the model is up.
+            self.emit(EngineEvent::Loading {
+                path: self.path.clone(),
+            });
+        }
+        // A preflight failure with a still-resident model (file deleted or
+        // replaced mid-session) is a load failure: the file is what every later
+        // dictation needs, and the app's model status must say so (FR-016).
         if let Err(message) = self.preflight() {
-            self.fail(message);
+            self.fail_load(message);
             return;
         }
         if let Err(message) = self.load_model_if_needed() {
-            self.fail(message);
+            self.fail_load(message);
             return;
         }
         match self.model.as_ref() {
@@ -797,6 +853,25 @@ impl Worker {
             return Ok(());
         }
         self.load_model()
+    }
+
+    /// Release the model after the app's idle timeout (FR-011).
+    ///
+    /// The app only asks while nothing is in flight; the refusal below is the
+    /// safety net for a racing `Start`, because the model must never be dropped
+    /// under a live session or a queued dictation. `verified` (the file stamp)
+    /// survives, so the reload skips the digest.
+    fn handle_unload(&mut self) {
+        if self.active.is_some() || !self.queue.is_empty() {
+            tracing::debug!("unload refused: a dictation is in flight");
+            return;
+        }
+        if self.model.take().is_none() {
+            tracing::debug!("unload requested with no model loaded");
+            return;
+        }
+        tracing::info!(path = %self.path.display(), "model released after the idle timeout");
+        self.emit(EngineEvent::Unloaded);
     }
 
     fn handle_audio(&mut self, samples: Vec<f32>) {
@@ -923,13 +998,13 @@ mod tests {
 
         // Nemotron 3.5 advertises locale codes, so the hint is the locale.
         let nemotron = selection("nemotron-3.5-asr-streaming-0.6b-Q8_0");
-        assert_eq!(run_options_for(Language::Auto, nemotron).language, None);
+        assert_eq!(run_options_for(Language::AUTO, nemotron).language, None);
         assert_eq!(
-            run_options_for(Language::EnUs, nemotron).language,
+            run_options_for(Language::new("en-US"), nemotron).language,
             Some("en-US".to_owned())
         );
         assert_eq!(
-            run_options_for(Language::DeDe, nemotron).language,
+            run_options_for(Language::new("de-DE"), nemotron).language,
             Some("de-DE".to_owned())
         );
 
@@ -937,17 +1012,20 @@ mod tests {
         // hint would be refused by the C API.
         let voxtral = selection("voxtral-mini-4b-realtime-2602-Q8_0");
         assert_eq!(
-            run_options_for(Language::DeDe, voxtral).language,
+            run_options_for(Language::new("de-DE"), voxtral).language,
             Some("de".to_owned())
         );
         let moonshine = selection("moonshine-streaming-tiny-Q8_0");
         assert_eq!(
-            run_options_for(Language::EnUs, moonshine).language,
+            run_options_for(Language::new("en-US"), moonshine).language,
             Some("en".to_owned())
         );
         // A language the model does not serve runs without a hint (FR-011)
         // instead of failing the run.
-        assert_eq!(run_options_for(Language::DeDe, moonshine).language, None);
+        assert_eq!(
+            run_options_for(Language::new("de-DE"), moonshine).language,
+            None
+        );
 
         // The tags stay on for every combination: they carry the detected
         // language, and `strip_language_tags` removes them before anything
@@ -1141,7 +1219,7 @@ mod tests {
             model: None,
             active: None,
             queue: VecDeque::from([Job {
-                language: Language::DeDe,
+                language: Language::new("de-DE"),
                 buffered: Vec::new(),
             }]),
             verified: None,
@@ -1157,7 +1235,7 @@ mod tests {
         );
         assert_eq!(
             worker.queue.front().map(|job| job.language),
-            Some(Language::DeDe)
+            Some(Language::new("de-DE"))
         );
     }
 
@@ -1191,5 +1269,142 @@ mod tests {
         }
 
         drop(engine);
+    }
+
+    #[test]
+    fn a_load_that_cannot_start_reports_loading_then_the_reason() {
+        let path = PathBuf::from("/nonexistent/lingua-engine-test.gguf");
+        let (tx, rx) = mpsc::channel();
+        let engine = spawn(
+            model_catalog::default_selection(),
+            path.clone(),
+            BackendPreference::Auto,
+            tx,
+        );
+
+        engine.send(EngineCmd::Start {
+            language: Language::AUTO,
+        });
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(EngineEvent::Loading { path: loading }) => assert_eq!(loading, path),
+            other => panic!("expected Loading first, got {other:?}"),
+        }
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(EngineEvent::LoadFailed { message, .. }) => {
+                assert!(message.contains("model file missing"), "{message}");
+            }
+            other => panic!("expected LoadFailed, got {other:?}"),
+        }
+
+        drop(engine);
+    }
+
+    #[test]
+    fn an_explicit_load_of_a_missing_file_fails_with_its_path() {
+        let path = PathBuf::from("/nonexistent")
+            .join(model_catalog::default_selection().artifact.file_name);
+        let (tx, rx) = mpsc::channel();
+        let engine = spawn(
+            model_catalog::default_selection(),
+            PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            BackendPreference::Auto,
+            tx,
+        );
+
+        engine.send(EngineCmd::LoadModel(path.clone(), BackendPreference::Auto));
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(EngineEvent::Loading { path: loading }) => assert_eq!(loading, path),
+            other => panic!("expected Loading first, got {other:?}"),
+        }
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(EngineEvent::LoadFailed {
+                path: failed,
+                message,
+            }) => {
+                assert_eq!(failed, path);
+                assert!(message.contains("model file missing"), "{message}");
+            }
+            other => panic!("expected LoadFailed, got {other:?}"),
+        }
+
+        drop(engine);
+    }
+
+    #[test]
+    fn an_unknown_model_file_fails_without_a_loading_event() {
+        let path = PathBuf::from("/models/not-a-lingua-model.gguf");
+        let (tx, rx) = mpsc::channel();
+        let engine = spawn(
+            model_catalog::default_selection(),
+            PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            BackendPreference::Auto,
+            tx,
+        );
+
+        engine.send(EngineCmd::LoadModel(path.clone(), BackendPreference::Auto));
+        match rx.recv_timeout(Duration::from_secs(10)) {
+            Ok(EngineEvent::LoadFailed {
+                path: failed,
+                message,
+            }) => {
+                assert_eq!(failed, path);
+                assert!(message.contains("unknown model file"), "{message}");
+            }
+            other => panic!("expected LoadFailed first, got {other:?}"),
+        }
+        // Nothing was loading, so no `Loading` may follow either.
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_millis(200)),
+            Err(RecvTimeoutError::Timeout)
+        ));
+
+        drop(engine);
+    }
+
+    /// A worker without a model, for tests that must not touch a model file.
+    fn worker_without_model(queue: VecDeque<Job>) -> (Worker, Receiver<EngineEvent>) {
+        let (tx, rx) = mpsc::channel();
+        (
+            Worker {
+                selection: model_catalog::default_selection(),
+                path: PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+                pref: BackendPreference::Auto,
+                events: tx,
+                model: None,
+                active: None,
+                queue,
+                verified: None,
+            },
+            rx,
+        )
+    }
+
+    #[test]
+    fn unloading_without_a_model_changes_nothing() {
+        let (mut worker, rx) = worker_without_model(VecDeque::new());
+
+        worker.handle_unload();
+
+        // No `Unloaded` for a model that was never resident (FR-012).
+        assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    }
+
+    #[test]
+    fn unloading_is_refused_while_a_dictation_waits() {
+        let (mut worker, rx) = worker_without_model(VecDeque::from([Job {
+            language: Language::AUTO,
+            buffered: vec![0.5],
+        }]));
+
+        worker.handle_unload();
+
+        // The queued dictation keeps its audio and no release is reported
+        // (FR-009: never drop the model under an in-flight dictation).
+        assert_eq!(worker.queue.len(), 1);
+        assert_eq!(
+            worker.queue.front().map(|job| job.buffered.clone()),
+            Some(vec![0.5])
+        );
+        assert!(matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
     }
 }

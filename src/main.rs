@@ -30,6 +30,7 @@ mod ui;
 mod ui_onboarding;
 mod ui_problems;
 mod ui_settings;
+mod vulkan_icd;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -140,7 +141,7 @@ fn diagnostics_cli() -> Result<()> {
     let checks = [
         hotkey_check,
         diagnostics::paste_check(),
-        diagnostics::engine_check(engine_info.as_ref(), engine_error.as_deref()),
+        diagnostics::gpu_check_probed(&config, engine_info.as_ref(), engine_error.as_deref()),
         diagnostics::overlay_check(overlay_backend, &overlay_reason),
     ];
 
@@ -253,6 +254,7 @@ fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<
                     }
                 }
                 engine::EngineEvent::Failed { message } => bail!("{message}"),
+                engine::EngineEvent::LoadFailed { message, .. } => bail!("{message}"),
                 _ => {}
             }
         }
@@ -280,6 +282,7 @@ fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<
                 }
             }
             Ok(engine::EngineEvent::Failed { message }) => bail!("{message}"),
+            Ok(engine::EngineEvent::LoadFailed { message, .. }) => bail!("{message}"),
             Ok(_) => {}
             // A quiet window is not a failure: finalizing a long recording can
             // take longer than the poll interval (Moonshine re-decodes its whole
@@ -341,6 +344,8 @@ fn run_daemon() -> Result<()> {
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)
+        .font(ui::FONT_VALUE)
+        .font(ui::FONT_LEGEND)
         .run()
         .context("running the iced daemon failed")
 }

@@ -15,21 +15,27 @@
 //!   (`en-US`, `de-DE`, …), Voxtral bare ones (`en`, `de`, …) and the
 //!   English-only variants exactly `["en"]`. [`language_hint`] therefore only
 //!   ever returns a spelling the variant advertises, and [`language_warning`]
-//!   reports the mismatch instead of letting the engine refuse the hint.
+//!   reports the mismatch instead of letting the engine refuse the hint. The
+//!   configured side is [`Language`] (see [`crate::config`]): one locale per
+//!   language these lists can serve, so the language selectors and the list
+//!   filter offer their union without a per-variant special case.
 //! * **Measurements are sparse.** Only some quants of some variants have a
 //!   published number; a missing one displays as `—` and is never substituted
 //!   (FR-004, SC-007).
+//! * **Which quant is worth its size is a per-model question.** The error a
+//!   quantisation costs is measured per variant and the speed rows do not cover
+//!   every quant, so [`Variant::recommended`] names one quant per variant instead
+//!   of a single global constant, and [`recommended`] resolves it. The compute
+//!   backend is not part of that answer — the measurements do not give it one.
 
 use crate::config::Language;
 
-/// Provenance of the bundled snapshot, shown in the Storage section.
+/// Provenance of the bundled snapshot: the closing line of the model list and
+/// the snapshot row of the Storage card.
 pub const SNAPSHOT_VERSION: &str = "transcribe.cpp v0.4.0 catalog, pinned 2026-10-16";
 
 /// Catalog id of the default model artifact (FR-008; unchanged default).
 pub const DEFAULT_ARTIFACT_ID: &str = "nemotron-3.5-asr-streaming-0.6b-Q8_0";
-
-/// Quant preselected on every card (FR-003).
-pub const RECOMMENDED_QUANT: &str = "Q8_0";
 
 /// The reference rig of the speed rating (FR-004).
 pub const SPEED_MACHINE_LABEL: &str = "AMD Ryzen 7 PRO 4750U";
@@ -96,8 +102,30 @@ pub struct Variant {
     pub params: u64,
     /// Languages exactly as the GGUF's `general.languages` lists them.
     pub languages: &'static [&'static str],
-    /// Offered quants, recommended one first.
+    /// Offered quants, catalog order.
     pub downloads: &'static [Artifact],
+    /// The quant this variant's card preselects (FR-003).
+    ///
+    /// These are data, not taste, and one rule produced them: take the smallest
+    /// offered quant that is *measured on both axes* — its error within 0.05 pp of
+    /// the Q8_0 reference on every measured cell of that variant (single-cell
+    /// measurements cannot resolve less), and a published speed row — and never
+    /// prefer an unmeasured quant over a measured one. Where nothing smaller
+    /// qualifies, the reference itself (Q8_0) is the recommendation. The test
+    /// module re-derives the table from this rule, so new upstream numbers cannot
+    /// drift away from it silently.
+    ///
+    /// **The compute backend does not enter this decision.** A quantisation costs
+    /// the same error on every backend (the weights are identical, and the
+    /// accuracy rows carry no backend at all), and the measured throughput
+    /// difference between Q8_0 and Q4_K_M does not favour the CPU: on the 0.6B
+    /// family Q4_K_M is 1.0–3.9 % *slower* on either backend, and the one variant
+    /// where it wins big — Voxtral Mini 4B, memory-bound, +15 % Vulkan and +26 %
+    /// CPU — lands on Q4_K_M anyway. A backend-dependent answer would be a second
+    /// answer to a question the measurements do not ask; it comes back when a
+    /// per-quant × per-backend measurement makes one, which is also when the
+    /// rule's test fails.
+    pub recommended: &'static str,
     /// Published accuracy measurements of the offered quants.
     pub accuracy: &'static [Accuracy],
     /// Published speed measurements on [`SPEED_MACHINE_LABEL`].
@@ -129,6 +157,8 @@ impl Selection {
 pub const VARIANTS: [Variant; 8] = [
     Variant {
         id: "moonshine-streaming-medium",
+        // The publisher offers no other quant, so there is nothing to choose.
+        recommended: "Q8_0",
         label: "Moonshine Streaming Medium",
         note: "English only. Best accuracy of the three Moonshine Streaming models.",
         family: "moonshine_streaming",
@@ -177,6 +207,8 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "moonshine-streaming-small",
+        // As with Medium: Q8_0 is the only published artifact.
+        recommended: "Q8_0",
         label: "Moonshine Streaming Small",
         note: "English only. Roughly halves the tiny model's word error rate.",
         family: "moonshine_streaming",
@@ -225,6 +257,8 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "moonshine-streaming-tiny",
+        // As with Medium: Q8_0 is the only published artifact.
+        recommended: "Q8_0",
         label: "Moonshine Streaming Tiny",
         note: "English only. 44 M parameters — the smallest and fastest model here.",
         family: "moonshine_streaming",
@@ -273,6 +307,8 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "multitalker-parakeet-streaming-0.6b-v1",
+        // Q4_K_M measures +0.00 pp (2.18 % wer, librispeech/en) at -256 MB.
+        recommended: "Q4_K_M",
         label: "Multitalker Parakeet Streaming 0.6B v1",
         note: "English only. Streaming ASR from NVIDIA's multitalker checkpoint, run single-speaker.",
         family: "parakeet",
@@ -381,8 +417,12 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "nemotron-3.5-asr-streaming-0.6b",
+        // Q5_K_M measures +0.05 pp (inside the band) but has no published speed
+        // row; Q4_K_M costs +0.25 pp. The rule keeps the reference until a
+        // smaller quant is measured on both axes.
+        recommended: "Q8_0",
         label: "Nemotron 3.5 ASR Streaming 0.6B",
-        note: "Multilingual (32 locales, incl. German). Best quality.",
+        note: "Multilingual (32 locales). Best quality.",
         family: "parakeet",
         license: "OpenMDW-1.1",
         params: 637_991_968,
@@ -502,6 +542,9 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "nemotron-speech-streaming-en-0.6b",
+        // Q5_K_M measures +0.03 pp (inside the band) but has no published speed
+        // row; Q4_K_M costs +0.07 pp, outside the band.
+        recommended: "Q8_0",
         label: "Nemotron Speech Streaming EN 0.6B",
         note: "English only. Punctuated, low-latency English dictation.",
         family: "parakeet",
@@ -610,6 +653,8 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "parakeet-unified-en-0.6b",
+        // Q4_K_M measures +0.02 pp (1.60 -> 1.62 % wer) at -254 MB.
+        recommended: "Q4_K_M",
         label: "Parakeet Unified EN 0.6B",
         note: "English only. Highest English accuracy in the set.",
         family: "parakeet",
@@ -718,8 +763,10 @@ pub const VARIANTS: [Variant; 8] = [
     },
     Variant {
         id: "voxtral-mini-4b-realtime-2602",
+        // +0.01 pp, -1.9 GB, and the only measured speed win (0.78x -> 0.90x Vulkan, 0.61x -> 0.77x CPU).
+        recommended: "Q4_K_M",
         label: "Voxtral Mini 4B Realtime (2602)",
-        note: "Multilingual realtime audio LLM (13 languages, incl. German). Large; wants a fast GPU.",
+        note: "Multilingual realtime audio LLM (13 languages). Large; wants a fast GPU.",
         family: "voxtral_realtime",
         license: "Apache-2.0",
         params: 4_429_707_024,
@@ -892,31 +939,29 @@ pub fn artifacts() -> impl Iterator<Item = Selection> {
     })
 }
 
-/// The quant a card preselects: [`RECOMMENDED_QUANT`] when the variant offers
-/// it, otherwise its first artifact (FR-003).
+/// The quant a card preselects: the variant's recommendation when it offers that
+/// quant, otherwise its first artifact (FR-003).
 pub fn recommended(variant: &'static Variant) -> &'static Artifact {
     variant
         .downloads
         .iter()
-        .find(|artifact| artifact.quant == RECOMMENDED_QUANT)
+        .find(|artifact| artifact.quant == variant.recommended)
         .unwrap_or(&variant.downloads[0])
 }
 
 /// Whether the variant advertises the configured dictation language.
 ///
 /// `Auto` always fits (the model picks the language per recording). An explicit
-/// language fits when the variant lists it either as the exact locale or as the
-/// bare language: `de-DE` is served by `de-DE` and by `de`.
+/// language fits when the variant lists it either as a locale of that language
+/// or as the bare language itself: `de-DE` is served by `de-DE` and by `de`.
 pub fn supports(variant: &Variant, language: Language) -> bool {
-    let wanted = match language {
-        Language::Auto => return true,
-        Language::EnUs => "en",
-        Language::DeDe => "de",
+    let Some((_, bare)) = language.codes() else {
+        return true;
     };
     variant.languages.iter().any(|advertised| {
-        *advertised == wanted
+        *advertised == bare
             || advertised
-                .strip_prefix(wanted)
+                .strip_prefix(bare)
                 .is_some_and(|rest| rest.starts_with('-'))
     })
 }
@@ -924,14 +969,10 @@ pub fn supports(variant: &Variant, language: Language) -> bool {
 /// The language hint to send to the engine, in a spelling the variant accepts.
 ///
 /// The C API refuses a hint that is not byte-equal to an advertised entry, so a
-/// locale the variant does not list falls back to its bare language, and a
+/// locale the variant does not list falls back to the bare language, and a
 /// language it does not advertise at all yields `None` (run without a hint).
 pub fn language_hint(variant: &Variant, language: Language) -> Option<&'static str> {
-    let (locale, bare) = match language {
-        Language::Auto => return None,
-        Language::EnUs => ("en-US", "en"),
-        Language::DeDe => ("de-DE", "de"),
-    };
+    let (locale, bare) = language.codes()?;
     let advertised = |wanted: &str| {
         variant
             .languages
@@ -945,19 +986,13 @@ pub fn language_hint(variant: &Variant, language: Language) -> Option<&'static s
 /// The warning shown when the configured language is one the variant does not
 /// serve. It never blocks a selection (FR-011): the caller renders it and the
 /// engine runs without a language hint.
-pub fn language_warning(variant: &Variant, language: Language) -> Option<&'static str> {
-    if supports(variant, language) {
-        return None;
-    }
-    match language {
-        Language::DeDe => {
-            Some("The English-only model cannot transcribe German — choose a multilingual model.")
-        }
-        Language::EnUs => {
-            Some("The selected model cannot transcribe English — choose a different model.")
-        }
-        Language::Auto => None,
-    }
+pub fn language_warning(variant: &Variant, language: Language) -> Option<String> {
+    (!supports(variant, language)).then(|| {
+        format!(
+            "The selected model cannot transcribe {} — choose a different model.",
+            language.display_name()
+        )
+    })
 }
 
 /// Parameter count in decimal units: `637_991_968` → `"638 M"`, `4_429_707_024`
@@ -970,13 +1005,13 @@ pub fn params_label(params: u64) -> String {
     }
 }
 
-/// The supported-language summary on the card (FR-003): German-capable variants
-/// name the count, the rest say what they are.
+/// The supported-language summary on the card (FR-003): how many languages the
+/// variant advertises. Which ones those are is the language filter's job — the
+/// card does not single one out.
 pub fn languages_label(variant: &Variant) -> String {
-    if supports(variant, Language::DeDe) {
-        format!("{} languages (incl. German)", variant.languages.len())
-    } else {
-        "English only".to_owned()
+    match variant.languages.len() {
+        1 => "1 language".to_owned(),
+        count => format!("{count} languages"),
     }
 }
 
@@ -995,10 +1030,9 @@ pub fn quality(selection: Selection, language: Language) -> Option<&'static Accu
         .filter(|cell| matches!(cell.metric, "wer" | "cer"))
         .collect();
 
-    let primary = match language {
-        Language::Auto => variant.headline.2,
-        Language::EnUs => "en",
-        Language::DeDe => "de",
+    let primary = match language.codes() {
+        Some((_, bare)) => bare,
+        None => variant.headline.2,
     };
     let preferred = [primary, variant.headline.2];
 
@@ -1045,8 +1079,8 @@ pub fn speed(selection: Selection) -> Option<&'static Speed> {
 mod tests {
     use super::*;
 
-    /// A variant that serves German only, so the English warning and the
-    /// "no advertised spelling" path are testable: no snapshot variant is
+    /// A variant that serves German only, so the warning text and the bare-code
+    /// fallback (`de-DE` → `de`) are testable: no snapshot variant is
     /// English-free.
     const GERMAN_ONLY: Variant = Variant {
         id: "german-only",
@@ -1064,6 +1098,7 @@ mod tests {
             size_bytes: 1,
             sha256: "0000000000000000000000000000000000000000000000000000000000000000",
         }],
+        recommended: "Q8_0",
         accuracy: &[],
         speed: &[Speed {
             backend: "cpu",
@@ -1071,6 +1106,32 @@ mod tests {
             xrt: 1.50,
         }],
         headline: ("test", "test", "de"),
+    };
+
+    /// A variant that advertises the language in only one spelling: a configured
+    /// `en-US` is then served (same language, so no warning) but has no
+    /// advertised spelling to send, the one combination where the engine runs
+    /// without a hint although the cards look fine.
+    const EN_GB_ONLY: Variant = Variant {
+        id: "en-gb-only",
+        label: "English (UK) Only",
+        note: "test fixture",
+        family: "test",
+        license: "test",
+        params: 1_000_000,
+        languages: &["en-GB"],
+        downloads: &[Artifact {
+            id: "en-gb-only-Q8_0",
+            quant: "Q8_0",
+            file_name: "en-gb-only-Q8_0.gguf",
+            url: "https://example.invalid/en-gb-only-Q8_0.gguf",
+            size_bytes: 1,
+            sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+        }],
+        recommended: "Q8_0",
+        accuracy: &[],
+        speed: &[],
+        headline: ("test", "test", "en"),
     };
 
     /// The three artifacts the app shipped before the snapshot existed; their
@@ -1116,19 +1177,17 @@ mod tests {
                 "{} must offer at least one artifact",
                 variant.id
             );
+            let quant = variant.recommended;
             assert!(
-                variant
-                    .downloads
-                    .iter()
-                    .any(|a| a.quant == RECOMMENDED_QUANT),
-                "{} must offer the recommended quant",
+                variant.downloads.iter().any(|a| a.quant == quant),
+                "{} must offer the recommended quant {quant}",
                 variant.id
             );
         }
 
-        // The default is both offered and the recommended quant of its variant.
+        // FR-002 pins the shipped default at Q8_0, whatever a card preselects.
         assert_eq!(default_selection().artifact.id, DEFAULT_ARTIFACT_ID);
-        assert_eq!(default_selection().artifact.quant, RECOMMENDED_QUANT);
+        assert_eq!(default_selection().artifact.quant, "Q8_0");
         // Ascending by label is the snapshot order and the default sort.
         let mut labels: Vec<&str> = VARIANTS.iter().map(|variant| variant.label).collect();
         let sorted = {
@@ -1243,25 +1302,56 @@ mod tests {
         let nemotron =
             artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("the default is offered");
         assert_eq!(
-            language_hint(nemotron.variant, Language::DeDe),
+            language_hint(nemotron.variant, Language::new("de-DE")),
             Some("de-DE")
         );
         assert_eq!(
-            language_hint(nemotron.variant, Language::EnUs),
+            language_hint(nemotron.variant, Language::new("en-US")),
             Some("en-US")
         );
-        assert_eq!(language_hint(nemotron.variant, Language::Auto), None);
+        assert_eq!(language_hint(nemotron.variant, Language::AUTO), None);
 
         // Voxtral advertises bare language codes, so the hint must be bare too.
         let voxtral = artifact("voxtral-mini-4b-realtime-2602-Q4_K_M").expect("offered");
-        assert_eq!(language_hint(voxtral.variant, Language::DeDe), Some("de"));
-        assert_eq!(language_hint(voxtral.variant, Language::EnUs), Some("en"));
+        assert_eq!(
+            language_hint(voxtral.variant, Language::new("de-DE")),
+            Some("de")
+        );
+        assert_eq!(
+            language_hint(voxtral.variant, Language::new("en-US")),
+            Some("en")
+        );
+        assert_eq!(
+            language_hint(voxtral.variant, Language::new("fr-CA")),
+            Some("fr"),
+            "a locale the variant does not list falls back to its bare language"
+        );
+        assert_eq!(
+            language_hint(voxtral.variant, Language::new("vi-VN")),
+            None,
+            "a language the variant does not serve runs without a hint"
+        );
 
         // The English-only variants advertise exactly `["en"]`.
         let moonshine = artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
-        assert_eq!(language_hint(moonshine.variant, Language::EnUs), Some("en"));
-        assert_eq!(language_hint(moonshine.variant, Language::DeDe), None);
-        assert_eq!(language_hint(moonshine.variant, Language::Auto), None);
+        assert_eq!(
+            language_hint(moonshine.variant, Language::new("en-US")),
+            Some("en")
+        );
+        assert_eq!(
+            language_hint(moonshine.variant, Language::new("de-DE")),
+            None
+        );
+        assert_eq!(language_hint(moonshine.variant, Language::AUTO), None);
+
+        // A variant that lists only `en-GB` serves `en-US` (same language, so no
+        // warning) but has no spelling to send: the engine runs without a hint.
+        assert!(supports(&EN_GB_ONLY, Language::new("en-US")));
+        assert_eq!(language_hint(&EN_GB_ONLY, Language::new("en-US")), None);
+        assert_eq!(
+            language_hint(&EN_GB_ONLY, Language::new("en-GB")),
+            Some("en-GB")
+        );
 
         // Every hint is byte-equal to an advertised entry (the C API's rule).
         for selection in artifacts() {
@@ -1281,25 +1371,76 @@ mod tests {
     fn unsupported_language_warns_but_stays_selectable() {
         let moonshine = artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
         assert_eq!(
-            language_warning(moonshine.variant, Language::DeDe),
-            Some("The English-only model cannot transcribe German — choose a multilingual model.")
+            language_warning(moonshine.variant, Language::new("de-DE")),
+            Some(
+                "The selected model cannot transcribe German — choose a different model."
+                    .to_owned()
+            )
         );
-        assert_eq!(language_warning(moonshine.variant, Language::Auto), None);
+        assert_eq!(language_warning(moonshine.variant, Language::AUTO), None);
         // FR-011: the warning never removes the artifact from the list.
         assert!(artifact("moonshine-streaming-tiny-Q8_0").is_some());
 
-        // No snapshot variant is English-free, so the English warning is pinned
-        // through a synthetic variant rather than left untested.
+        // No snapshot variant is English-free, so the matching warning is pinned
+        // through a synthetic variant rather than left untested. The text names
+        // the configured language, so it stays correct for all 32 of them.
         assert_eq!(
-            language_warning(&GERMAN_ONLY, Language::EnUs),
-            Some("The selected model cannot transcribe English — choose a different model.")
+            language_warning(&GERMAN_ONLY, Language::new("en-US")),
+            Some(
+                "The selected model cannot transcribe English (US) — choose a different model."
+                    .to_owned()
+            )
         );
-        assert_eq!(language_warning(&GERMAN_ONLY, Language::DeDe), None);
-        assert_eq!(language_hint(&GERMAN_ONLY, Language::DeDe), Some("de"));
+        assert_eq!(
+            language_warning(&GERMAN_ONLY, Language::new("en-GB")),
+            Some(
+                "The selected model cannot transcribe English (UK) — choose a different model."
+                    .to_owned()
+            )
+        );
+        assert_eq!(language_warning(&GERMAN_ONLY, Language::new("de-DE")), None);
+        assert_eq!(
+            language_hint(&GERMAN_ONLY, Language::new("de-DE")),
+            Some("de")
+        );
 
+        // The warning names whatever language the config holds, so the rule is
+        // pinned across the whole table.
+        for language in Language::ALL {
+            let warning = language_warning(&GERMAN_ONLY, language);
+            if language.is_auto() || language == Language::new("de-DE") {
+                assert_eq!(warning, None, "{language:?}");
+            } else {
+                assert!(
+                    warning.is_some_and(|text| text.contains(language.display_name())),
+                    "the warning must name {}",
+                    language.display_name()
+                );
+            }
+        }
+
+        // Nemotron 3.5 serves every language the table offers.
         let nemotron = artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("offered");
         for language in Language::ALL {
             assert_eq!(language_warning(nemotron.variant, language), None);
+        }
+    }
+
+    #[test]
+    fn the_language_table_covers_every_advertised_language() {
+        for variant in &VARIANTS {
+            for advertised in variant.languages {
+                let bare = advertised
+                    .split_once('-')
+                    .map_or(*advertised, |(bare, _)| bare);
+                assert!(
+                    Language::ALL
+                        .iter()
+                        .any(|language| language.codes().is_some_and(|(_, entry)| entry == bare)),
+                    "{} advertises {advertised}, which the language table does not offer",
+                    variant.id
+                );
+            }
         }
     }
 
@@ -1314,7 +1455,8 @@ mod tests {
 
         // The selected quant has no German cell, but the headline dataset does.
         let voxtral = artifact("voxtral-mini-4b-realtime-2602-Q4_K_M").expect("offered");
-        let (err, found) = quality_of(voxtral, Language::DeDe).expect("a German cell exists");
+        let (err, found) =
+            quality_of(voxtral, Language::new("de-DE")).expect("a German cell exists");
         assert_eq!(err, 4.24);
         assert_eq!(
             (found.dataset, found.split, found.quant),
@@ -1324,23 +1466,36 @@ mod tests {
 
         // The headline dataset wins over the other published one.
         let nemotron = artifact("nemotron-3.5-asr-streaming-0.6b-Q4_K_M").expect("offered");
-        let (err, found) = quality_of(nemotron, Language::EnUs).expect("an English cell exists");
+        let (err, found) =
+            quality_of(nemotron, Language::new("en-US")).expect("an English cell exists");
         assert_eq!(err, 3.30);
         assert_eq!((found.dataset, found.split), ("librispeech", "test-clean"));
         assert_eq!(found.quant, "Q4_K_M");
 
+        // A locale without cells of its own falls back to its language's cells,
+        // exactly like the hint falls back to the bare language.
+        assert_eq!(
+            quality_of(nemotron, Language::new("en-GB")).map(|(err, _)| err),
+            Some(3.30)
+        );
+        assert_eq!(
+            quality_of(nemotron, Language::new("es-ES")).map(|(err, found)| (err, found.language)),
+            Some((3.30, "en")),
+            "a language without a published cell falls back to the headline one"
+        );
+
         let moonshine = artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
         assert_eq!(
-            quality_of(moonshine, Language::EnUs).map(|(err, _)| err),
+            quality_of(moonshine, Language::new("en-US")).map(|(err, _)| err),
             Some(4.52)
         );
         // `auto` uses the headline cell (librispeech for Moonshine, fleurs for Nemotron).
         assert_eq!(
-            quality_of(moonshine, Language::Auto).map(|(err, _)| err),
+            quality_of(moonshine, Language::AUTO).map(|(err, _)| err),
             Some(4.52)
         );
         assert_eq!(
-            quality_of(nemotron, Language::Auto).map(|(err, found)| (err, found.dataset)),
+            quality_of(nemotron, Language::AUTO).map(|(err, found)| (err, found.dataset)),
             Some((3.30, "librispeech"))
         );
     }
@@ -1372,7 +1527,7 @@ mod tests {
                     variant.id
                 );
             }
-            assert!(quality(selection, Language::Auto).is_some());
+            assert!(quality(selection, Language::AUTO).is_some());
         }
     }
 
@@ -1418,17 +1573,11 @@ mod tests {
         assert_eq!(params_label(1_000_000_000), "1.0 B");
 
         let nemotron = artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("offered");
-        assert_eq!(
-            languages_label(nemotron.variant),
-            "32 languages (incl. German)"
-        );
+        assert_eq!(languages_label(nemotron.variant), "32 languages");
         let moonshine = artifact("moonshine-streaming-tiny-Q8_0").expect("offered");
-        assert_eq!(languages_label(moonshine.variant), "English only");
+        assert_eq!(languages_label(moonshine.variant), "1 language");
         let voxtral = artifact("voxtral-mini-4b-realtime-2602-Q8_0").expect("offered");
-        assert_eq!(
-            languages_label(voxtral.variant),
-            "13 languages (incl. German)"
-        );
+        assert_eq!(languages_label(voxtral.variant), "13 languages");
     }
 
     #[test]
@@ -1456,18 +1605,70 @@ mod tests {
     }
 
     #[test]
-    fn recommended_quant_is_the_q8_row() {
+    fn the_recommendation_is_the_smallest_measured_quant_inside_the_noise_band() {
+        /// The band the catalog's [`Recommendation`] rule names: every published
+        /// quant cell is a single measurement, so less than this cannot be
+        /// resolved.
+        const NOISE_BAND_PP: f32 = 0.05;
+
+        // `Some(true)`: measured on both axes — inside the error band on every
+        // cell Q8_0 was measured on, and a speed row. `Some(false)`: measured,
+        // but outside the band. `None`: nothing published for it.
+        let qualifies = |variant: &Variant, quant: &str| -> Option<bool> {
+            let mut measured = false;
+            for row in variant.accuracy.iter().filter(|row| row.quant == quant) {
+                let Some(base) = variant.accuracy.iter().find(|other| {
+                    other.quant == "Q8_0"
+                        && other.dataset == row.dataset
+                        && other.split == row.split
+                        && other.language == row.language
+                }) else {
+                    continue;
+                };
+                measured = true;
+                if row.err_pct - base.err_pct > NOISE_BAND_PP {
+                    return Some(false);
+                }
+            }
+            if !measured {
+                return None;
+            }
+
+            // A quant upstream published no throughput for is not a preset: its
+            // card would draw no speed bar and the speed sort could not rank it.
+            let rated = variant.speed.iter().any(|row| row.quant == quant);
+
+            rated.then_some(true)
+        };
+
         for variant in &VARIANTS {
-            let recommended = recommended(variant);
-            assert_eq!(recommended.quant, RECOMMENDED_QUANT, "{}", variant.id);
+            let pick = recommended(variant);
             assert_eq!(
-                speed(Selection {
-                    variant,
-                    artifact: recommended
-                })
-                .map(|row| row.quant),
-                Some(RECOMMENDED_QUANT)
+                qualifies(variant, pick.quant),
+                Some(true),
+                "{}: {} is recommended without being measured on both axes",
+                variant.id,
+                pick.quant
             );
+
+            // Nothing smaller may qualify: this is what makes the pick the
+            // smallest one, and it is the tripwire for new upstream numbers — a
+            // quant that moves inside the band fails here and forces the decision
+            // to be taken again instead of drifting.
+            for smaller in variant
+                .downloads
+                .iter()
+                .filter(|artifact| artifact.size_bytes < pick.size_bytes)
+            {
+                assert_ne!(
+                    qualifies(variant, smaller.quant),
+                    Some(true),
+                    "{}: {} is smaller and qualifies, so it, not {}, is the recommendation",
+                    variant.id,
+                    smaller.quant,
+                    pick.quant
+                );
+            }
         }
     }
 

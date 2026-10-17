@@ -3,9 +3,10 @@
 //!
 //! [`render`] is a pure function of `(frame, scale)`: a rounded card with the
 //! state line, the streaming transcript and a level bar, rasterised with
-//! `tiny-skia` and shaped with `cosmic-text` the same way on every call. The font
-//! is the embedded Inter Regular (no runtime font lookup), the text is shaped with
-//! a process-wide [`FontSystem`] that is created once, and every glyph is blended
+//! `tiny-skia` and shaped with `cosmic-text` the same way on every call. The
+//! faces are embedded (no runtime font lookup): the status legend is Barlow
+//! Condensed, the transcript Inter Regular; the text is shaped with a
+//! process-wide [`FontSystem`] that is created once, and every glyph is blended
 //! into the pixmap by hand so the source-over arithmetic is premultiplied-correct
 //! for `wl_shm`/`ZPixmap` uploads.
 
@@ -27,8 +28,12 @@ pub const BOTTOM_MARGIN: i32 = 48;
 /// system.
 pub const CORNER_RADIUS: f32 = metrics::RADIUS_OVERLAY;
 
-/// The embedded UI font (Inter Regular, SIL OFL 1.1 — see `assets/Inter-LICENSE.txt`).
+/// The embedded value face (Inter Regular, SIL OFL 1.1 — see `assets/Inter-LICENSE.txt`).
 pub const FONT: &[u8] = include_bytes!("../assets/Inter-Regular.ttf");
+
+/// The embedded legend face (Barlow Condensed SemiBold, SIL OFL 1.1 — see
+/// `assets/BarlowCondensed-LICENSE.txt`); the pill's status line is set in it.
+pub const FONT_LEGEND: &[u8] = include_bytes!("../assets/BarlowCondensed-SemiBold.ttf");
 
 /// Padding between the card edge and its content.
 const PAD: f32 = 20.0;
@@ -72,9 +77,11 @@ const LEVEL_TOP: f32 = OVERLAY_H as f32 - PAD - LEVEL_HEIGHT;
 const MIN_SCALE: i32 = 1;
 /// Guard against absurd buffer sizes if a caller passes a nonsense scale.
 const MAX_SCALE: i32 = 8;
-/// Family name declared by the embedded font; only a fallback for the name read
-/// back from the font database.
+/// Family name declared by the embedded value face; only a fallback for the name
+/// read back from the font database.
 const FONT_FAMILY: &str = "Inter";
+/// Family name of the embedded legend face, same fallback rule.
+const LEGEND_FAMILY: &str = "Barlow Condensed";
 
 /// The status line shown at the top of the card. Every literal here is a
 /// user-visible contract string.
@@ -83,6 +90,15 @@ pub fn state_line(state: &OverlayState, elapsed: std::time::Duration) -> String 
         OverlayState::Recording => {
             let seconds = elapsed.as_secs();
             format!("Listening… {}:{:02}", seconds / 60, seconds % 60)
+        }
+        OverlayState::LoadingModel(model) => {
+            let seconds = elapsed.as_secs();
+            if elapsed.is_zero() {
+                // The recording already stopped (AwaitingFinal): no timer.
+                format!("Loading {model}…")
+            } else {
+                format!("Loading {model}… {}:{:02}", seconds / 60, seconds % 60)
+            }
         }
         OverlayState::Transcribing => "Transcribing…".to_owned(),
         OverlayState::Queued => "Queued…".to_owned(),
@@ -112,10 +128,16 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let family = cache.family.clone();
+    let legend = cache.legend.clone();
 
-    // Status line: a single line, elided rather than overflowing the card.
-    let status = state_line(&frame.state, frame.elapsed);
-    let status_attrs = text_attrs(&family, status_rgb());
+    // Status line: a single line in the legend face, elided rather than
+    // overflowing the card. An error speaks in its own ink, like the placards.
+    let status = state_line(&frame.state, frame.elapsed).to_uppercase();
+    let status_rgb = match frame.state {
+        OverlayState::Error(_) => palette::rgb8(palette::ERROR),
+        _ => status_rgb(),
+    };
+    let status_attrs = text_attrs(&legend, status_rgb);
     let status_metrics = Metrics::new(STATUS_FONT_SIZE * scale_px, STATUS_LINE_HEIGHT * scale_px);
     let mut status_buffer = Buffer::new(&mut cache.font_system, status_metrics);
     status_buffer.set_size(Some(content_width), None);
@@ -123,12 +145,7 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
     status_buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(1)));
     status_buffer.set_text(&status, &status_attrs, Shaping::Advanced, None);
     let status_at = (PAD * scale_px, STATUS_TOP * scale_px);
-    cache.blit(
-        &mut status_buffer,
-        &mut pixmap,
-        status_at,
-        rgb(status_rgb()),
-    );
+    cache.blit(&mut status_buffer, &mut pixmap, status_at, rgb(status_rgb));
 
     // Streaming transcript: word-wrapped to two lines, elided with "…" beyond.
     if !frame.text.is_empty() {
@@ -254,13 +271,15 @@ fn rounded_rect_path(rect: Rect, radius: f32) -> Option<tiny_skia::Path> {
 }
 
 /// Text shaping state shared by every frame: one [`FontSystem`] holding the
-/// embedded font plus a [`SwashCache`] of rasterised glyphs. Creating the font
+/// embedded faces plus a [`SwashCache`] of rasterised glyphs. Creating the font
 /// system per frame would rescan the installed fonts ten times a second.
 struct FontCache {
     font_system: FontSystem,
     swash: SwashCache,
-    /// Family name of the embedded face, read back from the font database.
+    /// Family name of the embedded value face, read back from the database.
     family: String,
+    /// Family name of the embedded legend face, same rule.
+    legend: String,
 }
 
 static FONT_CACHE: LazyLock<Mutex<FontCache>> =
@@ -269,12 +288,13 @@ static FONT_CACHE: LazyLock<Mutex<FontCache>> =
 impl FontCache {
     fn load_embedded_font() -> Self {
         let mut font_system = FontSystem::new();
-        let family = embedded_family(&mut font_system);
-        tracing::debug!(family = %family, "overlay font ready");
+        let (family, legend) = embedded_families(&mut font_system);
+        tracing::debug!(family = %family, legend = %legend, "overlay fonts ready");
         Self {
             font_system,
             swash: SwashCache::new(),
             family,
+            legend,
         }
     }
 
@@ -312,23 +332,29 @@ impl FontCache {
     }
 }
 
-/// Load the embedded font and read its family name back from the database, so the
-/// name is never hard-coded twice.
-fn embedded_family(font_system: &mut FontSystem) -> String {
+/// Load the embedded faces and read their family names back from the database,
+/// so neither name is hard-coded twice.
+fn embedded_families(font_system: &mut FontSystem) -> (String, String) {
     let database = font_system.db_mut();
     database.load_font_data(FONT.to_vec());
-    let mut embedded = None;
-    let mut last = None;
+    database.load_font_data(FONT_LEGEND.to_vec());
+    let mut value = None;
+    let mut legend = None;
     for face in database.faces() {
         let Some((name, _)) = face.families.first() else {
             continue;
         };
         if name == FONT_FAMILY {
-            embedded = Some(name.clone());
+            value = Some(name.clone());
         }
-        last = Some(name.clone());
+        if name == LEGEND_FAMILY {
+            legend = Some(name.clone());
+        }
     }
-    embedded.or(last).unwrap_or_else(|| FONT_FAMILY.to_owned())
+    (
+        value.unwrap_or_else(|| FONT_FAMILY.to_owned()),
+        legend.unwrap_or_else(|| LEGEND_FAMILY.to_owned()),
+    )
 }
 
 #[cfg(test)]
@@ -375,6 +401,22 @@ mod tests {
         assert_eq!(
             state_line(&OverlayState::NoSpeech, Duration::ZERO),
             "No speech detected"
+        );
+        // FR-004: the loading indicator names the model and keeps the timer
+        // while the recording runs; without a running recording there is none.
+        assert_eq!(
+            state_line(
+                &OverlayState::LoadingModel("Nemotron 3.5 — Q8_0".to_owned()),
+                Duration::ZERO
+            ),
+            "Loading Nemotron 3.5 — Q8_0…"
+        );
+        assert_eq!(
+            state_line(
+                &OverlayState::LoadingModel("Nemotron 3.5 — Q8_0".to_owned()),
+                Duration::from_secs(63)
+            ),
+            "Loading Nemotron 3.5 — Q8_0… 1:03"
         );
     }
 
