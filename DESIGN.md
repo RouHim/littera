@@ -16,29 +16,29 @@ colors:
 typography:
   brand:
     fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "16px"
+    fontSize: "18px"
     fontWeight: 600
   title:
     fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "22px"
+    fontSize: "24px"
     fontWeight: 600
     lineHeight: 1.2
   legend:
     fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "16px"
+    fontSize: "18px"
     fontWeight: 600
     lineHeight: 1.2
   key:
     fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "13px"
+    fontSize: "15px"
     fontWeight: 600
   body:
     fontFamily: "Inter, sans-serif"
-    fontSize: "15px"
+    fontSize: "17px"
     fontWeight: 400
   identifier:
     fontFamily: "ui-monospace, monospace"
-    fontSize: "13px"
+    fontSize: "15px"
     fontWeight: 400
 rounded:
   control: "0px"
@@ -81,6 +81,12 @@ components:
     typography: "{typography.body}"
     rounded: "{rounded.control}"
     padding: "8px 10px"
+  overlay-pill:
+    backgroundColor: "rgba(38, 45, 52, 0.90)"
+    textColor: "{colors.silk}"
+    rounded: "{rounded.pill}"
+    width: "560px"
+    height: "112px"
 ---
 
 # Design System: Lingua
@@ -149,11 +155,11 @@ The palette is a single dark steel family plus three signal inks; colour is neve
 **Character:** The condensed legend face does the talking — short, tracked, always upper-case, like silk-screen stencils on equipment; Inter carries sentences and values at a working size. The pairing reads as a machine label next to a printed field, never as a document.
 
 ### Hierarchy
-- **Title/legend** (600, 22px, 1.2): surface titles ("SET UP LINGUA"), upper-case.
-- **Legend** (600, 16px, 1.2): section headings ("MODEL", "HOTKEY"), upper-case.
-- **Key** (600, 13px): field keys and state captions ("BACKEND", "NOT DOWNLOADED"), upper-case, muted unless toned.
-- **Body** (400, 15px): values, ledes, placard text; sentence case.
-- **Identifier** (400, 13px): paths, model files, chords, percentages — monospace, silk.
+- **Title/legend** (600, 24px, 1.2): surface titles ("SET UP LINGUA"), upper-case.
+- **Legend** (600, 18px, 1.2): section headings ("MODEL", "HOTKEY"), upper-case.
+- **Key** (600, 15px): field keys and state captions ("BACKEND", "NOT DOWNLOADED"), upper-case, muted unless toned.
+- **Body** (400, 17px): values, ledes, placard text; sentence case.
+- **Identifier** (400, 15px): paths, model files, chords, percentages — monospace, silk.
 
 Condensed caps are set a step above the value size: at the same pixel size they read smaller than sentence-case body text.
 
@@ -164,7 +170,7 @@ Condensed caps are set a step above the value size: at the same pixel size they 
 
 ## Layout
 
-One scrolling column per window, 24px outer padding, sections separated by 32px and their content by 12px — more air above a heading than below it. Field rows lock their key in a 96px label column and align the value beside it, so a plate reads as a grid without drawing one. The Settings window is 900×720 (minimums 620×480); onboarding 820×660; the problems notice 560×620. The overlay pill is a fixed 560×112 floating 48px above the bottom edge. Density is compact-instrument: 4/8/12/16/24/32 is the whole spacing scale.
+One scrolling column per window, 24px outer padding, sections separated by 32px and their content by 12px — more air above a heading than below it. Every setting is its own section with its own legend heading; nothing that is a separate setting hangs off the end of a list or a neighbouring card. Field rows lock their key in a 96px label column and align the value beside it, so a plate reads as a grid without drawing one. The Settings window is 900×720 (minimums 620×480); onboarding 820×660; the problems notice 560×620. The overlay pill is a fixed 560×112 floating 48px above the bottom edge. Density is compact-instrument: 4/8/12/16/24/32 is the whole spacing scale.
 
 ## Elevation & Depth
 
@@ -183,7 +189,7 @@ Square by contract: controls, plates, placards, fields and scrollbars all use 0 
 ## Components
 
 ### Buttons
-- **Shape:** square (0 radius), 1px frame, 8px/16px padding, legend caps at 11px.
+- **Shape:** square (0 radius), 1px frame, 8px/16px padding, legend caps at 13px.
 - **Primary:** transparent fill, signal frame and ink; hover fills Signal Amber with enamel ink; pressed uses the deep signal.
 - **Secondary:** transparent fill, silk frame at 55 %, silk ink; hover adds a 7 % silk wash.
 - **Link:** no frame, muted steel ink, signal on hover — for identifiers that open something.
@@ -208,14 +214,30 @@ Square by contract: controls, plates, placards, fields and scrollbars all use 0 
 
 ### Lamps
 - **Style:** a 7px filled circle in the field it reports; the designed-off state is a hollow 1px ring, never a dimmed dot.
-- **Use:** one per capability-plate field (model load state, backend, device, hotkey) and nowhere else.
+- **Use:** one per capability-plate field (model load state, backend, device, hotkey) and one per model row, where it states the artifact's state — solid in the state's tone, the hollow ring for "on disk, not checked yet".
 
-### List Rows (model cards)
-- **Style:** a plate per entry; name in body semibold, quant chips as stamped mini-buttons, size and identifiers in mono, state caption in legend caps with its tone.
-- **Selected:** the same plate behind a 1.5px signal frame — selection is a frame, not a fill.
+### Icons
+- **Style:** drawn marks on a 16-unit grid, 1.5-unit strokes, square-proportioned and unrounded (`src/ui_icons.rs`), rendered with iced's canvas in the palette's role ink — silk for secondary, signal for the primary control, dimmed when a control is unavailable. Six marks carry the whole vocabulary: chevron down/up (disclosure), download arrow (fetch), tick (verify), cross (cancel), cycle (retry).
+- **Use:** icon-only controls, always with their word in a tooltip; a state is never stated by an icon alone — the state caption beside it does the naming. Hand-drawn geometry only: no font glyphs, no framework icon set, no bitmap assets.
+- **Sizing:** 18px box on the lifted type ladder, one icon per control at the row's right edge.
 
-### Scrollbars
-- **Style:** square scroller, silk at 35 %; hover 60 %; the signal colour only while dragged. The rail is empty.
+### List Rows (model list)
+- **Style:** one two-line field row per entry (`.spec/model-list-field-rows.md`): line 1 the identity and state — radio, name in the value face, download size in mono, the state's lamp and its one icon control (download / tick / cross / cycle, tooltip-worded); the state is never spelled out — the lamp's tone and the mark carry it, the word waits in the tooltip; line 2 the facts and the disclosure — the language summary, the quant chips as stamped mini-buttons, the language marker, then the Quality/Speed bars in their own slot and the chevron that opens the detail. The bar slot is anchored to the row's right edge, so the two bars stand on one axis across every row whatever the summary and the quants measure before them.
+- **Selected:** the same row behind a 1.5px signal frame — selection is a frame, not a fill. The active model's row is pinned as the list's first row and not repeated in the sorted remainder.
+- **Expansion:** the chevron grows the row in place (one row at a time) with the published values and the catalog record the row leaves out — parameter count, license, datasets, reference machine, file, SHA-256, URL. Never an inner scroll area: the page scroll is the only scroll.
+- **Narrow widths:** the fact line wraps rather than clipping; the label and the language summary give up width first, so state, controls and the disclosure stay reachable at the window minimum (620×480).
+
+### Overlay Pill
+- **Style:** the one floating surface, and the only surface where a rounded corner and a
+  translucent fill are the point — Plate tone at 90 % over whatever it covers, 16px radius,
+  no frame, no shadow, 20px side inset with the status line 16px from the top edge.
+- **Content:** a legend-caps status line (15px, Muted Steel — Fault Ink when the state is an
+  error), the streaming transcript below it in Inter at 17px, wrapped and elided after two
+  lines, and an 8px fully-rounded level bar 20px above the bottom edge: Signal Amber, Fault
+  Ink while the state is an error, no track, growing from the left.
+- **Status line:** single-line and elided while a transcript sits below it — those rows belong
+  to the speech; with no transcript (errors, notices) it wraps onto the free second row,
+  because a cut-off recovery is worse than a longer notice.
 
 ## Do's and Don'ts
 
@@ -229,7 +251,7 @@ Square by contract: controls, plates, placards, fields and scrollbars all use 0 
 ### Don't:
 - **Don't** round a plate, a field, a button or a placard — radius 0 is the contract.
 - **Don't** introduce a second saturated colour, a gradient, a glow or a shadow.
-- **Don't** use glyphs or emoji as icons; a control names its action in words ("SHOW DETAILS"), and state markers are stencil words ("OK", "FAIL").
+- **Don't** use glyphs or emoji as icons; draw the mark on the icon grid or speak the word. An icon-only control keeps its word in a tooltip, and a row's state is read from its lamp beside the mark, never spelled out in the row.
 - **Don't** stripe an alert; a placard carries its meaning in its frame and wash.
 - **Don't** let a disabled control look interactive, and never dim a lamp to hide a state — draw it hollow.
 - **Don't** run monospace outside data, and never upper-case prose.

@@ -21,12 +21,11 @@ A user opens the settings model section. The list shows every offered variant wi
 
 ### Scenario 2 - Filter and sort the list (P1)
 
-The user narrows the list by language and maximum download size, and sorts by quality, speed, size, or name.
+The user narrows the list by language and sorts by quality, speed, size, or name.
 
 **Acceptance**
 1. Given the model section, When the filter "Deutsch" is applied, Then exactly the variants supporting German remain listed.
-2. Given a maximum download size of 1 GB, When the filter is applied, Then variants whose selected quant exceeds 1 GB are hidden and the rest remain.
-3. Given the list, When sorted by speed, Then the fastest model is first and variants without a speed value sort last.
+2. Given the list, When sorted by speed, Then the fastest model is first and variants without a speed value sort last.
 
 ### Scenario 3 - Download, verify, and activate a model (P1)
 
@@ -53,7 +52,7 @@ Installs that already use one of the three previously offered models keep their 
 - **FR-002**: The model section lists exactly the variants that are runnable with the bundled engine — streaming-capable ASR variants that work with the app's language handling (`de-DE`, `en-US`, `auto`; language tags stripped before display, clipboard, or typing) — as one card per variant.
 - **FR-003**: Each card shows name, supported languages including whether German is supported, parameter count, licence, the download size of the selected quant, the quality and speed indicators, and a quant selector with the recommended quant preselected.
 - **FR-004**: The quality indicator shows the WER published for the configured dictation language (falling back to the model's headline English result; for `auto` the headline result is used). The speed indicator shows ×realtime on the reference machine (Ryzen 7 PRO 4750U) with the Vulkan backend; the CPU value is available in the detail. Both indicators are visual bars scaled relative to the best value among the currently listed models; the exact values, dataset names, machine, and backend are reachable in an expandable detail; a missing measurement renders as "—" with an empty bar and is never substituted.
-- **FR-005**: Above the list: a text search over model and family names, a language filter (All / German / English), a maximum-download-size filter, and sorting by quality, speed, size, or name.
+- **FR-005**: Above the list, in this order: the language filter (All languages / one per served language), the sorting chips (quality, speed, size, name), then the text search over model and family names — the search sits closest to the list it narrows.
 - **FR-006**: Downloads use the existing verified pipeline: resumable from the partial file, progress reporting, cancellation, retry, byte-length and SHA-256 verification against the snapshot, and a free-space check before starting. Exactly one download runs at a time; while one runs, other cards' download actions are unavailable.
 - **FR-007**: A download that fails or is cancelled leaves the model unactivated and the list usable; the failure is shown on the card with a retry action.
 - **FR-008**: Selecting a model is always possible; the model becomes active only after its artifact is verified on disk, at which point the engine reloads on it. The active model is persisted as its catalog id in the configuration, and the default stays `nemotron-3.5-asr-streaming-0.6b-Q8_0`.
@@ -91,7 +90,7 @@ Installs that already use one of the three previously offered models keep their 
 ## Assumptions
 
 - Speed reference is the Ryzen 7 PRO 4750U with the Vulkan backend (CPU value in the detail view); the reference machine is labelled on the card.
-- Additional filters beyond language: maximum download size; sorting by quality, speed, size, name (delegated by the user as "other sensible filter options").
+- Sorting by quality, speed, size, name (delegated by the user as "other sensible filter options"). The maximum-download-size filter was removed on 2026-10-17: the compact field-row list shows every variant at once, so the filter added chrome without narrowing anything the user needed.
 - Exactly one download at a time.
 - Rating bars scale relative to the best listed model; exact values live in the detail view.
 - The onboarding hint names the settings surface without a deep link.

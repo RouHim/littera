@@ -5,14 +5,15 @@
 //! in the pinned footer instead.
 //!
 //! The model section renders the bundled [`model_catalog`] snapshot: one compact
-//! card per streaming variant — name and download size, languages, parameters and
-//! license, a quant selector, the quality/speed bars and one line that merges the
-//! download state with its action — inside a capped, scrollable list, with
-//! filters, sorting and an expandable detail for the exact published values
-//! (FR-003/FR-004/FR-005). A language mismatch is a warning on the card and never
-//! blocks a selection (FR-011), and the list closes with the snapshot version it
-//! was rendered from (FR-002), so the pinned provenance sits with the entries it
-//! describes.
+//! two-line field row per streaming variant — name and download size, the state
+//! with its one action, the language summary, a quant selector and the
+//! quality/speed bars — with filters, sorting and an expandable detail for the
+//! exact published values, the parameter count and the license
+//! (FR-003/FR-004/FR-005, `.spec/model-list-field-rows.md`). A language mismatch
+//! is a marker on the row and never blocks a selection (FR-011). The list is
+//! plain page content, so the page scroll is the only scroll: the variants never
+//! get a nested scroll area of their own, and the pinned snapshot version (FR-002)
+//! is read in the Storage card like every other machine fact.
 //!
 //! Below the list the section renders the selected model's load lifecycle as one
 //! card (FR-001/FR-002/FR-012): loading, the resident backend and device, the
@@ -23,7 +24,7 @@
 use std::fmt;
 
 use iced::widget::{
-    Space, button, column, container, pick_list, progress_bar, radio, row, scrollable, text_input,
+    button, column, container, pick_list, progress_bar, radio, row, scrollable, text_input,
 };
 use iced::{Element, Length, Task};
 
@@ -32,7 +33,8 @@ use crate::audio;
 use crate::config::{self, Config, IdleUnload, Language};
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
-use crate::ui::{self, Message, Tone, metrics, style};
+use crate::ui::{self, Message, Tone, metrics, palette, style};
+use crate::ui_icons::{self, Icon};
 
 /// Actions the settings surface can produce.
 #[derive(Debug, Clone)]
@@ -52,7 +54,6 @@ pub enum Action {
     ToggleDetail(&'static str),
     SetSearch(String),
     SetLanguageFilter(LanguageFilter),
-    SetMaxSize(SizeFilter),
     SetSort(SortOrder),
     SelectLanguage(Language),
     /// Pick the model idle-unload timeout (FR-006).
@@ -111,41 +112,7 @@ impl fmt::Display for LanguageFilter {
     }
 }
 
-/// Maximum download size of the card's selected quant (FR-005).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SizeFilter {
-    #[default]
-    All,
-    UpTo500Mb,
-    UpTo1Gb,
-    UpTo3Gb,
-}
-
-impl SizeFilter {
-    /// Every option, in the order the chips are rendered.
-    pub const ALL: [SizeFilter; 4] = [Self::All, Self::UpTo500Mb, Self::UpTo1Gb, Self::UpTo3Gb];
-
-    const fn label(self) -> &'static str {
-        match self {
-            SizeFilter::All => "Any size",
-            SizeFilter::UpTo500Mb => "≤ 500 MB",
-            SizeFilter::UpTo1Gb => "≤ 1 GB",
-            SizeFilter::UpTo3Gb => "≤ 3 GB",
-        }
-    }
-
-    /// The largest artifact a card may select to stay listed.
-    pub const fn threshold(self) -> Option<u64> {
-        match self {
-            SizeFilter::All => None,
-            SizeFilter::UpTo500Mb => Some(500_000_000),
-            SizeFilter::UpTo1Gb => Some(1_000_000_000),
-            SizeFilter::UpTo3Gb => Some(3_000_000_000),
-        }
-    }
-}
-
-/// Order of the card list (FR-005).
+/// Order of the model list (FR-005).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SortOrder {
     #[default]
@@ -169,14 +136,17 @@ impl SortOrder {
     }
 }
 
-/// The indicator bars are reference marks, not progress: thin and short.
-const INDICATOR_BAR_WIDTH: f32 = 120.0;
+/// The indicator bars are reference marks, not progress: thin and short — a
+/// row's fact line is the scan layer, the numbers live in the detail
+/// (`model-list-field-rows` FR-001).
+const INDICATOR_BAR_WIDTH: f32 = 44.0;
+/// The compact padding of a row's quant chip.
+const CHIP_PADDING: [f32; 2] = [2.0, metrics::SPACE_SM];
+/// The width of a running transfer's bar in a row's identity line.
+const TRANSFER_BAR_WIDTH: f32 = 96.0;
 const INDICATOR_BAR_HEIGHT: f32 = 4.0;
 /// The dash a quant without a published measurement shows (SC-007).
 const NO_MEASUREMENT: &str = "—";
-/// The model list stops growing here and scrolls instead: two compact cards, so
-/// eight variants never decide how far the settings page reaches.
-const LIST_MAX_HEIGHT: f32 = 520.0;
 
 /// The note under a configured device that cannot be opened right now (FR-006).
 const CURRENTLY_UNAVAILABLE: &str = "currently unavailable";
@@ -187,9 +157,8 @@ const SCANNING_INPUT_DEVICES: &str = "Scanning input devices…";
 /// Joins the parts of one device option: name, identifier, note.
 const SEPARATOR: &str = "  ·  ";
 
-/// Caption of the catalog provenance line (FR-002): it closes the model list and
-/// heads the snapshot row of the Storage card, so the pinned version reads the
-/// same way wherever it appears.
+/// Caption of the catalog provenance line (FR-002): the snapshot row of the
+/// Storage card states the pinned catalog the list is rendered from.
 const SNAPSHOT_LABEL: &str = "Catalog snapshot";
 
 /// Session-only list state: the filters, the sorting, the expanded detail and
@@ -198,7 +167,6 @@ const SNAPSHOT_LABEL: &str = "Catalog snapshot";
 pub struct ListState {
     pub search: String,
     pub language: LanguageFilter,
-    pub max_size: SizeFilter,
     pub sort: SortOrder,
     pub expanded: Option<&'static str>,
     /// Variant id → quant for cards the user configured without selecting them.
@@ -236,17 +204,13 @@ impl ListState {
         }
     }
 
-    /// The cards to render: filters applied, then sorted (SC-005).
+    /// The rows to render: filters applied, then sorted (SC-005).
     pub fn visible(&self, active: Selection, language: Language) -> Vec<Selection> {
         let query = self.search.trim().to_lowercase();
         let mut visible: Vec<Selection> = model_catalog::VARIANTS
             .iter()
             .filter(|variant| {
                 self.language.keeps(variant)
-                    && self
-                        .max_size
-                        .threshold()
-                        .is_none_or(|limit| self.quant_for(variant, active).size_bytes <= limit)
                     && (query.is_empty()
                         || variant.label.to_lowercase().contains(&query)
                         || variant.id.to_lowercase().contains(&query)
@@ -329,7 +293,6 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
         }
         Action::SetSearch(query) => app.settings.list.search = query,
         Action::SetLanguageFilter(filter) => app.settings.list.language = filter,
-        Action::SetMaxSize(filter) => app.settings.list.max_size = filter,
         Action::SetSort(order) => app.settings.list.sort = order,
         Action::SelectLanguage(language) => return select_language(app, language),
         Action::SelectIdleUnload(value) => return select_idle_unload(app, value),
@@ -470,7 +433,6 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     }
     model_section = model_section.push(controls(app));
     model_section = model_section.push(list(app, &visible, config.language));
-    model_section = model_section.push(idle_unload_card(app));
 
     // FR-007: one entry per language the catalog can serve, `Auto-detect` (the
     // default) first — the same vocabulary the model filter uses.
@@ -578,6 +540,13 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     column![
         capability_plate(app),
         model_section,
+        // The idle-unload setting is its own section: inside the model section it
+        // read as another row of the list (same plate, same 12 px rhythm).
+        column![
+            ui::heading::<Action>(IDLE_UNLOAD_LABEL),
+            idle_unload_card(app)
+        ]
+        .spacing(metrics::SPACE_MD),
         column![ui::heading::<Action>("Language"), language_card].spacing(metrics::SPACE_MD),
         column![ui::heading::<Action>("Microphone"), microphone_section(app)]
             .spacing(metrics::SPACE_MD),
@@ -790,7 +759,7 @@ fn microphone_section(app: &App) -> Element<'static, Action> {
     ui::card(entries)
 }
 
-/// Caption of the idle-unload card (FR-006).
+/// Heading of the idle-unload section and caption of its card (FR-006).
 const IDLE_UNLOAD_LABEL: &str = "Unload idle model";
 /// The card's one explanation line.
 const IDLE_UNLOAD_LEAD: &str =
@@ -814,17 +783,10 @@ fn idle_unload_card(app: &App) -> Element<'_, Action> {
         );
     }
 
-    ui::card(
-        column![
-            ui::key::<Action>(IDLE_UNLOAD_LABEL),
-            options,
-            ui::lead::<Action>(IDLE_UNLOAD_LEAD),
-        ]
-        .spacing(metrics::SPACE_MD),
-    )
+    ui::card(column![options, ui::lead::<Action>(IDLE_UNLOAD_LEAD),].spacing(metrics::SPACE_MD))
 }
 
-/// FR-005: search, language filter, maximum size and sorting.
+/// FR-005: the language filter, the sorting and the text search.
 fn controls(app: &App) -> Element<'_, Action> {
     let list = &app.settings.list;
 
@@ -846,15 +808,6 @@ fn controls(app: &App) -> Element<'_, Action> {
     .text_size(metrics::TEXT_BODY)
     .style(style::pick_list)
     .menu_style(style::pick_list_menu);
-
-    let size_chips =
-        SizeFilter::ALL
-            .into_iter()
-            .fold(row![].spacing(metrics::SPACE_SM), |chips, filter| {
-                chips.push(chip(filter.label(), filter == list.max_size, move |_| {
-                    Action::SetMaxSize(filter)
-                }))
-            });
 
     let sort_chips =
         SortOrder::ALL
@@ -878,11 +831,12 @@ fn controls(app: &App) -> Element<'_, Action> {
             ))
         });
 
+    // The text filter sits closest to the list it narrows: language and sorting
+    // first, then the search over what is left (FR-005).
     let mut row = column![
-        search,
         controls_row("Language", language_picker),
-        controls_row("Max download size", size_chips),
         controls_row("Sort by", sort_chips),
+        controls_row("Search", search),
     ]
     .spacing(metrics::SPACE_SM);
 
@@ -915,11 +869,11 @@ fn chip<'a>(
     chip.on_press(on_press(())).into()
 }
 
-/// The card list, or the reason it is empty (SC-005).
+/// The row list, or the reason it is empty (SC-005).
 fn list<'a>(app: &'a App, visible: &[Selection], language: Language) -> Element<'a, Action> {
-    let mut cards = column![].spacing(metrics::SPACE_MD);
+    let mut rows = column![].spacing(metrics::SPACE_SM);
     if visible.is_empty() {
-        return cards
+        return rows
             .push(ui::banner("No model matches the filters.", Tone::Info))
             .into();
     }
@@ -939,32 +893,38 @@ fn list<'a>(app: &'a App, visible: &[Selection], language: Language) -> Element<
             Some(best.map_or(value, |best| best.max(value)))
         });
 
-    for selection in visible {
-        cards = cards.push(card(app, *selection, language, best_wer, best_xrt));
+    for selection in ordered_rows(app.model, visible) {
+        rows = rows.push(field_row(app, selection, language, best_wer, best_xrt));
     }
-    // The list *is* the snapshot rendered: its provenance closes it, so the
-    // pinned version is read where the entries it describes end.
-    cards = cards.push(
-        column![
-            ui::key::<Action>(SNAPSHOT_LABEL),
-            ui::mono::<Action>(model_catalog::SNAPSHOT_VERSION),
-        ]
-        .spacing(metrics::SPACE_XS),
-    );
-    // The list scrolls on its own and is capped, so its length never decides how
-    // far the settings page reaches: eight variants would otherwise push every
-    // section below them behind a long page scroll.
-    container(
-        scrollable(cards)
-            .direction(ui::scroll_direction())
-            .style(style::scrollable),
-    )
-    .max_height(LIST_MAX_HEIGHT)
-    .into()
+    rows.into()
 }
 
-/// One variant card (FR-003/FR-004).
-fn card(
+/// Display order of the rows (spec `model-list-field-rows` FR-002): the active
+/// model leads and is never listed twice; a filter that hides it hides it here
+/// too — the pin never overrides the filters (FR-010).
+fn ordered_rows(active: Selection, visible: &[Selection]) -> Vec<Selection> {
+    let id = active.artifact.id;
+    visible
+        .iter()
+        .find(|selection| selection.artifact.id == id)
+        .into_iter()
+        .chain(
+            visible
+                .iter()
+                .filter(|selection| selection.artifact.id != id),
+        )
+        .copied()
+        .collect()
+}
+
+/// One variant as a two-line field row (spec `model-list-field-rows` FR-001).
+///
+/// Line 1 is identity and state — radio, label, size, the state tag and the one
+/// control the state allows; line 2 the facts and the detail trigger — the
+/// metadata line, the offered quants, the quality/speed comparison, the language
+/// marker and `Details`. Line 2 wraps rather than clipping, so the minimum
+/// window keeps every fact and every control reachable (FR-008).
+fn field_row(
     app: &App,
     selection: Selection,
     language: Language,
@@ -973,41 +933,92 @@ fn card(
 ) -> Element<'_, Action> {
     let variant = selection.variant;
     let artifact = selection.artifact;
-    let active = app.model;
-    let is_active = active.artifact.id == artifact.id;
+    let id = artifact.id;
+    let is_active = app.model.artifact.id == id;
     let expanded = app.settings.list.expanded == Some(variant.id);
+    let verified = is_active && matches!(app.model_status, crate::app::ModelStatus::Resident(_));
+    let busy = ui::download_busy_elsewhere(app, id);
+    // `data`, not `mono`: the size is a value in a row of values and must never
+    // take the free width and wrap its own digits (FR-008).
+    let size = || ui::data::<Action>(models::human_size(artifact.size_bytes));
 
-    let header = row![
-        radio(
-            variant.label,
-            artifact.id,
-            Some(active.artifact.id),
-            Action::SelectModel,
+    // The state's faces (FR-004): while a transfer runs, its progress takes the
+    // size's place so line 2 keeps every static fact. The tags are the row's
+    // short forms; the sentences live in the model card and in onboarding.
+    let state = ui::model_state(app, selection, verified);
+    let (lamp, mark, label, primary) = state_faces(&state);
+    let message = match &state {
+        ui::ModelState::Downloading { .. } | ui::ModelState::Verifying => {
+            Some(Action::CancelDownload)
+        }
+        ui::ModelState::Failed(_) => (!busy).then_some(Action::RetryDownload(id)),
+        _ => (!busy).then_some(Action::Download(id)),
+    };
+    let state_fact: Element<'_, Action> = match &state {
+        ui::ModelState::Downloading { percent } => row![
+            progress_bar(0.0..=100.0, *percent)
+                .length(Length::Fixed(TRANSFER_BAR_WIDTH))
+                .style(style::progress),
+            ui::mono::<Action>(format!("{percent:.0} %")),
+        ]
+        .spacing(metrics::SPACE_SM)
+        .align_y(iced::Alignment::Center)
+        .into(),
+        _ => size(),
+    };
+    let failure = match &state {
+        ui::ModelState::Failed(error) => Some(error.clone()),
+        _ => None,
+    };
+    // The control is an icon-only button (FR-012): the row's state tag states the
+    // state, the mark carries the action, the tooltip keeps the word.
+    let control = ui_icons::icon_button(
+        mark,
+        if primary {
+            palette::ACCENT
+        } else {
+            palette::TEXT
+        },
+        message,
+        label,
+        if primary {
+            style::primary_button
+        } else {
+            style::secondary_button
+        },
+    );
+
+    // The label takes the width the state's facts leave and clips inside it, so
+    // the size, the tag and the control keep the row's right edge and its padding
+    // at every window width (FR-008).
+    let identity = row![
+        container(
+            radio(
+                variant.label,
+                id,
+                Some(app.model.artifact.id),
+                Action::SelectModel,
+            )
+            .style(style::radio)
+            .text_size(metrics::TEXT_LEAD)
+            .spacing(metrics::SPACE_SM),
         )
-        .style(style::radio)
-        .text_size(metrics::TEXT_LEAD)
-        .spacing(metrics::SPACE_SM),
-        Space::new().width(Length::Fill),
-        ui::key::<Action>("Download size"),
-        ui::data(models::human_size(artifact.size_bytes)),
+        .width(Length::Fill)
+        .clip(true),
+        state_fact,
+        state_lamp(lamp),
+        control,
     ]
     .spacing(metrics::SPACE_SM)
     .align_y(iced::Alignment::Center);
 
-    let meta = ui::muted::<Action>(format!(
-        "{} · {} params · {}",
-        model_catalog::languages_label(variant),
-        model_catalog::params_label(variant.params),
-        variant.license,
-    ));
-
-    let mut quants = row![ui::key::<Action>("Quant")].spacing(metrics::SPACE_SM);
+    let mut quants = row![].spacing(metrics::SPACE_XS);
     for candidate in variant.downloads {
         let selected = candidate.quant == artifact.quant;
-        let id = candidate.quant;
+        let quant = candidate.quant;
         quants = quants.push(
-            button(ui::stamp(id))
-                .padding(metrics::BUTTON_PADDING)
+            button(ui::stamp(quant))
+                .padding(CHIP_PADDING)
                 .style(if selected {
                     style::primary_button
                 } else {
@@ -1015,44 +1026,109 @@ fn card(
                 })
                 .on_press(Action::SelectQuant {
                     variant: variant.id,
-                    quant: id,
+                    quant,
                 }),
         );
     }
 
-    let mut body = column![
-        header,
-        meta,
-        quants,
+    let mut facts = row![ui::muted::<Action>(meta_line(variant)), quants]
+        .spacing(metrics::SPACE_MD)
+        .align_y(iced::Alignment::Center)
+        .width(Length::Fill);
+    if let Some(marker) = warning_marker(variant, language) {
+        facts = facts.push(ui::state_tag::<Action>(marker, Tone::Warning));
+    }
+
+    // The fact line takes the width the detail trigger leaves and wraps inside
+    // it, so the trigger keeps the row's right edge — under the state's control
+    // on line 1 — at every window width (FR-008). The indicators hold their own
+    // slot between the wrapping facts and the trigger: anchored to the row's
+    // right edge, the Quality and Speed bars stand on one axis across every row,
+    // whatever the language summary and the quants before them measure.
+    let facts_line = row![
+        facts.wrap().vertical_spacing(metrics::SPACE_SM),
         indicators(selection, language, best_wer, best_xrt),
-        download_row(app, selection),
+        ui_icons::icon_button(
+            if expanded {
+                Icon::ChevronUp
+            } else {
+                Icon::ChevronDown
+            },
+            palette::TEXT,
+            Some(Action::ToggleDetail(variant.id)),
+            if expanded {
+                "Hide details"
+            } else {
+                "Show details"
+            },
+            style::secondary_button,
+        ),
     ]
-    .spacing(metrics::SPACE_MD);
+    .spacing(metrics::SPACE_MD)
+    .align_y(iced::Alignment::Start);
 
-    body = body.push(
-        button(ui::stamp(if expanded {
-            "Hide details"
-        } else {
-            "Show details"
-        }))
-        .style(style::secondary_button)
-        .padding(metrics::BUTTON_PADDING)
-        .on_press(Action::ToggleDetail(variant.id)),
-    );
+    // The two lines sit tight: with the lifted type the row still has to keep the
+    // list short (spec `model-list-field-rows` SC-001).
+    let mut body = column![identity, facts_line].spacing(metrics::SPACE_XS);
 
-    if let Some(warning) = model_catalog::language_warning(variant, language) {
-        body = body.push(ui::banner(warning, Tone::Warning));
+    if let Some(error) = failure {
+        body = body.push(ui::banner(error, Tone::Error));
+        body = body.push(ui::muted::<Action>(
+            "The partial download is kept and resumed.",
+        ));
     }
 
     if expanded {
+        if let Some(warning) = model_catalog::language_warning(variant, language) {
+            body = body.push(ui::banner(warning, Tone::Warning));
+        }
         body = body.push(detail(selection));
     }
 
     if is_active {
-        ui::card_active(body)
+        ui::field_row_active(body)
     } else {
-        ui::card(body)
+        ui::field_row(body)
     }
+}
+
+/// The row's state, as the row states it (spec FR-004/FR-012): the lamp's tone
+/// (`None` = the hollow ring, the world's designed-off lamp), the mark and the
+/// word of the control the state allows, and whether that control is the primary
+/// one. One table, so every state reads the same way and a new state cannot slip
+/// in unmarked — the state is the lamp and the mark, its word is the control's
+/// tooltip.
+fn state_faces(state: &ui::ModelState) -> (Option<Tone>, Icon, &'static str, bool) {
+    match state {
+        ui::ModelState::Downloading { .. } => (Some(Tone::Info), Icon::Cross, "Cancel", true),
+        ui::ModelState::Verifying => (Some(Tone::Info), Icon::Cross, "Cancel", true),
+        ui::ModelState::Failed(_) => (Some(Tone::Error), Icon::Retry, "Retry", false),
+        ui::ModelState::Verified => (Some(Tone::Success), Icon::Check, "Verify", false),
+        // On disk, not checked yet: the designed-off lamp, never a dimmed dot.
+        ui::ModelState::OnDisk => (None, Icon::Check, "Verify", false),
+        ui::ModelState::NotDownloaded => (Some(Tone::Warning), Icon::Download, "Download", true),
+    }
+}
+
+/// The lamp of a state: solid in its tone, or the hollow ring of "designed off".
+fn state_lamp<M: 'static>(tone: Option<Tone>) -> Element<'static, M> {
+    match tone {
+        Some(tone) => ui::lamp(tone),
+        None => ui::lamp_off(),
+    }
+}
+
+/// The metadata line of a row (spec FR-009): the language summary only. The
+/// parameter count and the license are not scan fields — they live in the detail
+/// block with the rest of the catalog record.
+fn meta_line(variant: &model_catalog::Variant) -> String {
+    model_catalog::languages_label(variant)
+}
+
+/// The row's compact language warning (spec FR-005): the fact alone, so it fits
+/// the row; the sentence it abbreviates lives in the expanded detail.
+fn warning_marker(variant: &model_catalog::Variant, language: Language) -> Option<String> {
+    model_catalog::language_warning(variant, language).map(|_| format!("No {}", language.label()))
 }
 
 /// FR-004: the quality and speed indicators — a caption next to a thin, quiet
@@ -1130,88 +1206,6 @@ fn indicator(caption: &'static str, fraction: Option<f32>) -> Element<'static, A
         .into()
 }
 
-/// The card's download line: the state and the action it allows on one row
-/// (FR-003/FR-006/SC-008). Which state a card is in comes from
-/// [`ui::model_state`] — the same decision the onboarding panel renders in full.
-fn download_row(app: &App, selection: Selection) -> Element<'static, Action> {
-    let id = selection.artifact.id;
-    let busy = ui::download_busy_elsewhere(app, id);
-    let verified = matches!(app.model_status, crate::app::ModelStatus::Resident(_))
-        && app.model.artifact.id == id;
-
-    match ui::model_state(app, selection, verified) {
-        ui::ModelState::Downloading { percent } => row![
-            progress_bar(0.0..=100.0, percent)
-                .length(Length::Fill)
-                .style(style::progress),
-            ui::mono::<Action>(format!("{percent:.0} %")),
-            action_button("Cancel", Some(Action::CancelDownload), true),
-        ]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into(),
-        ui::ModelState::Verifying => row![
-            ui::state_tag("Verifying — SHA-256", Tone::Info),
-            action_button("Cancel", Some(Action::CancelDownload), true),
-        ]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into(),
-        ui::ModelState::Failed(error) => column![
-            ui::banner(error, Tone::Error),
-            row![
-                action_button("Retry", (!busy).then_some(Action::RetryDownload(id)), false),
-                ui::muted::<Action>("The partial download is kept and resumed."),
-            ]
-            .spacing(metrics::SPACE_MD)
-            .align_y(iced::Alignment::Center),
-        ]
-        .spacing(metrics::SPACE_SM)
-        .into(),
-        state => {
-            let (tag, tone, label, primary) = match state {
-                ui::ModelState::Verified => {
-                    ("Verified — ready to use", Tone::Success, "Verify", false)
-                }
-                ui::ModelState::OnDisk => {
-                    ("On disk — not checked yet", Tone::Info, "Verify", false)
-                }
-                _ => ("Not downloaded", Tone::Warning, "Download", true),
-            };
-            let action = Action::Download(id);
-            row![
-                ui::state_tag(tag, tone),
-                action_button(label, (!busy).then_some(action), primary),
-            ]
-            .spacing(metrics::SPACE_MD)
-            .align_y(iced::Alignment::Center)
-            .into()
-        }
-    }
-}
-
-/// The card's action button; rendered without an `on_press` (dimmed by the
-/// button style) when `message` is `None` — another download runs, or the
-/// action is the one a running download already offers elsewhere (FR-006/SC-008).
-fn action_button(
-    label: &'static str,
-    message: Option<Action>,
-    primary: bool,
-) -> Element<'static, Action> {
-    let button = button(ui::stamp(label))
-        .padding(metrics::BUTTON_PADDING)
-        .style(if primary {
-            style::primary_button
-        } else {
-            style::secondary_button
-        });
-
-    match message {
-        Some(message) => button.on_press(message).into(),
-        None => button.into(),
-    }
-}
-
 /// The expanded detail: the exact published values (FR-004/SC-001), plus the
 /// variant note the compact card leaves out.
 fn detail(selection: Selection) -> Element<'static, Action> {
@@ -1266,6 +1260,11 @@ fn detail(selection: Selection) -> Element<'static, Action> {
         "Languages: {}",
         variant.languages.join(", ")
     )));
+    rows = rows.push(ui::data::<Action>(format!(
+        "Params: {}",
+        model_catalog::params_label(variant.params)
+    )));
+    rows = rows.push(ui::data::<Action>(format!("License: {}", variant.license)));
     rows = rows.push(ui::muted::<Action>(format!("Family: {}", variant.family)));
     rows = rows.push(ui::muted::<Action>(format!(
         "Snapshot: {}",
@@ -1375,48 +1374,6 @@ mod tests {
             )),
             "auto is not a language to filter by"
         );
-    }
-
-    #[test]
-    fn size_filter_hides_artifacts_above_the_threshold() {
-        let one_gb = ListState {
-            max_size: SizeFilter::UpTo1Gb,
-            ..ListState::default()
-        };
-        let listed = ids(&one_gb, Language::AUTO);
-        assert_eq!(listed.len(), 7, "Voxtral's Q8_0 is 4.73 GB: {listed:?}");
-        assert!(!listed.contains(&"voxtral-mini-4b-realtime-2602"));
-
-        // 500 MB keeps the three Moonshine variants and Parakeet Unified, whose
-        // card preselects its recommended 477 MB Q4_K_M (its Q8_0 is 731 MB).
-        let half_gb = ListState {
-            max_size: SizeFilter::UpTo500Mb,
-            ..ListState::default()
-        };
-        assert_eq!(
-            ids(&half_gb, Language::AUTO),
-            [
-                "moonshine-streaming-medium",
-                "moonshine-streaming-small",
-                "moonshine-streaming-tiny",
-                "parakeet-unified-en-0.6b",
-            ]
-        );
-
-        // The threshold applies to the selected quant, not to the variant: the
-        // 475 MB Q4_K_M of the Nemotron EN variant fits where its 730 MB Q8_0
-        // does not.
-        let mut with_override = half_gb.clone();
-        with_override.set_quant("nemotron-speech-streaming-en-0.6b", "Q4_K_M");
-        let listed = ids(&with_override, Language::AUTO);
-        assert!(
-            listed.contains(&"nemotron-speech-streaming-en-0.6b"),
-            "{listed:?}"
-        );
-
-        // A threshold is inclusive.
-        assert_eq!(SizeFilter::All.threshold(), None);
-        assert_eq!(SizeFilter::UpTo500Mb.threshold(), Some(500_000_000));
     }
 
     #[test]
@@ -1613,9 +1570,113 @@ mod tests {
     }
 
     #[test]
+    fn every_download_state_has_its_face_in_the_row() {
+        let faces = [
+            (
+                ui::ModelState::NotDownloaded,
+                (Some(Tone::Warning), Icon::Download, "Download", true),
+            ),
+            (ui::ModelState::OnDisk, (None, Icon::Check, "Verify", false)),
+            (
+                ui::ModelState::Verified,
+                (Some(Tone::Success), Icon::Check, "Verify", false),
+            ),
+            (
+                ui::ModelState::Failed("sha mismatch".to_owned()),
+                (Some(Tone::Error), Icon::Retry, "Retry", false),
+            ),
+            (
+                ui::ModelState::Verifying,
+                (Some(Tone::Info), Icon::Cross, "Cancel", true),
+            ),
+            (
+                ui::ModelState::Downloading { percent: 42.0 },
+                (Some(Tone::Info), Icon::Cross, "Cancel", true),
+            ),
+        ];
+
+        for (state, expected) in faces {
+            assert_eq!(state_faces(&state), expected, "{state:?}");
+        }
+    }
+
+    #[test]
+    fn the_active_model_leads_the_rows_and_is_not_repeated() {
+        // The default selection sorts into the middle of the name-sorted list.
+        let visible = ListState::default().visible(active(), Language::AUTO);
+        let ordered = ordered_rows(active(), &visible);
+        let ids = |rows: &[Selection]| {
+            rows.iter()
+                .map(|selection| selection.artifact.id)
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(ordered.len(), visible.len());
+        assert_eq!(ordered[0].artifact.id, active().artifact.id);
+        assert_eq!(
+            ids(&ordered[1..]),
+            ids(&visible)
+                .into_iter()
+                .filter(|id| *id != active().artifact.id)
+                .collect::<Vec<_>>(),
+        );
+    }
+
+    #[test]
+    fn rows_without_the_active_model_keep_their_order() {
+        // A filter that hides the active model hides it here too: the pin never
+        // overrides the filters (FR-010).
+        let visible: Vec<Selection> = ListState::default()
+            .visible(active(), Language::AUTO)
+            .into_iter()
+            .filter(|selection| selection.artifact.id != active().artifact.id)
+            .collect();
+        let ordered = ordered_rows(active(), &visible);
+
+        assert_eq!(ordered.len(), visible.len());
+        assert!(
+            ordered
+                .iter()
+                .zip(&visible)
+                .all(|(row, visible)| row.artifact.id == visible.artifact.id)
+        );
+    }
+
+    #[test]
+    fn the_meta_line_is_only_the_language_summary() {
+        let selection =
+            model_catalog::artifact("moonshine-streaming-medium-Q8_0").expect("offered");
+        assert_eq!(meta_line(selection.variant), "1 language");
+        // Params and license are detail facts, not scan fields: they must not
+        // leak back into the row (spec FR-009).
+        let line = meta_line(selection.variant);
+        assert!(!line.contains(&model_catalog::params_label(selection.variant.params)));
+        assert!(!line.contains(selection.variant.license));
+    }
+
+    #[test]
+    fn a_language_the_variant_cannot_serve_gets_a_compact_marker() {
+        let moonshine =
+            model_catalog::artifact("moonshine-streaming-medium-Q8_0").expect("offered");
+        assert_eq!(
+            warning_marker(moonshine.variant, Language::new("de-DE")),
+            Some("No de-DE".to_owned())
+        );
+        assert_eq!(
+            warning_marker(moonshine.variant, Language::new("en-US")),
+            None
+        );
+
+        // Nemotron 3.5 serves every language the table offers.
+        let nemotron =
+            model_catalog::artifact("nemotron-3.5-asr-streaming-0.6b-Q8_0").expect("offered");
+        for language in Language::ALL {
+            assert_eq!(warning_marker(nemotron.variant, language), None);
+        }
+    }
+
+    #[test]
     fn filter_and_sort_labels_are_frozen() {
-        assert_eq!(SizeFilter::All.label(), "Any size");
-        assert_eq!(SizeFilter::UpTo1Gb.label(), "≤ 1 GB");
         assert_eq!(LanguageFilter::ALL.to_string(), "All languages");
         assert_eq!(
             LanguageFilter::only(Language::new("de-DE")).to_string(),
@@ -1623,7 +1684,6 @@ mod tests {
         );
         assert_eq!(SortOrder::default(), SortOrder::Name);
         assert_eq!(LanguageFilter::default(), LanguageFilter::ALL);
-        assert_eq!(SizeFilter::default(), SizeFilter::All);
         assert_eq!(SortOrder::ALL.map(SortOrder::label).len(), 4);
     }
 

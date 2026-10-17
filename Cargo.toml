@@ -14,8 +14,10 @@ transcribe-cpp = { version = "0.4.0", default-features = false, features = ["vul
 # thread pool, unused because the `tokio` backend outranks it). The renderer
 # pair is deliberate: `iced_renderer` then builds `Renderer::All`, which prefers
 # wgpu at runtime and falls back to the CPU (tiny-skia) on machines without a
-# usable adapter.
+# usable adapter. `canvas` adds the vector geometry layer (`lyon_path`) that the
+# drawn icon set needs.
 iced = { version = "0.14.0", default-features = false, features = [
+    "canvas",
     "crisp",
     "web-colors",
     "wgpu",

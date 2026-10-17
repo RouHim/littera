@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-16T17:30:00Z",
+  "generatedAt": "2026-10-17T00:00:00Z",
   "title": "Design System: Lingua",
   "extensions": {
     "colorMeta": {
@@ -73,6 +73,14 @@
       "description": "Recessed well with a hairline frame; the frame turns signal on focus.",
       "html": "<input class=\"ds-field-input\" placeholder=\"Search models…\">",
       "css": ".ds-field-input { background: #1D2329; color: #E9EBE4; border: 1px solid rgba(233,235,228,0.26); border-radius: 0; padding: 8px 10px; font-family: 'Inter', sans-serif; font-size: 15px; outline: none; } .ds-field-input::placeholder { color: #9AA39B; } .ds-field-input:hover { border-color: rgba(233,235,228,0.55); } .ds-field-input:focus { border-color: #E3B23C; }"
+    },
+    {
+      "name": "Overlay Pill",
+      "kind": "custom",
+      "refersTo": "overlay-pill",
+      "description": "The one floating surface: 90% plate fill, 16px radius, no frame and no shadow — status legend, two-line transcript, level bar.",
+      "html": "<div class=\"ds-pill\"><span class=\"ds-pill-status\">TRANSCRIBING…</span><span class=\"ds-pill-text\">the quick brown fox jumps over the lazy dog and keeps dictating into the focused window</span><span class=\"ds-pill-level\"></span></div>",
+      "css": ".ds-pill { width: 560px; height: 112px; box-sizing: border-box; border-radius: 16px; background: rgba(38,45,52,0.90); padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 6px; font-family: 'Inter', sans-serif; } .ds-pill-status { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 15px; line-height: 18px; letter-spacing: 0.06em; text-transform: uppercase; color: #9AA39B; } .ds-pill-status.is-error { color: #E07361; } .ds-pill-text { font-size: 17px; line-height: 20px; color: #E9EBE4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .ds-pill-level { margin-top: auto; width: 62%; height: 8px; border-radius: 4px; background: #E3B23C; }"
     }
   ],
   "narrative": {

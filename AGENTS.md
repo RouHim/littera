@@ -24,7 +24,7 @@
 
 ## Architecture & Data Flow
 
-Flat crate: 26 `.rs` files directly in `src/`, every module declared at the crate root (`src/main.rs:9-33`) — no nested module trees (spec FR-021). Layers: **CLI/daemon (`main.rs`)** → **`app` (state machine + wiring)** → **iced surfaces (`ui`, `ui_onboarding`, `ui_settings`, `ui_problems`)**; platform adapters `audio`, `engine` (with `stream_lease` owning the session/stream borrow), `hotkey{,_device,_portal}`, `clipboard`, `inserter`, `overlay{,_render,_wayland,_x11}`, `tray`, `ipc`; infrastructure `config`, `model_catalog` (the bundled, versioned snapshot of the `transcribe.cpp` catalog), `models` (verified downloads), `diagnostics` + `vulkan_icd` (the capability checks and the missing-driver advice they show), `logging`.
+Flat crate: 27 `.rs` files directly in `src/`, every module declared at the crate root (`src/main.rs:9-34`) — no nested module trees (spec FR-021). Layers: **CLI/daemon (`main.rs`)** → **`app` (state machine + wiring)** → **iced surfaces (`ui`, `ui_icons` — the drawn icon set, `ui_onboarding`, `ui_settings`, `ui_problems`)**; platform adapters `audio`, `engine` (with `stream_lease` owning the session/stream borrow), `hotkey{,_device,_portal}`, `clipboard`, `inserter`, `overlay{,_render,_wayland,_x11}`, `tray`, `ipc`; infrastructure `config`, `model_catalog` (the bundled, versioned snapshot of the `transcribe.cpp` catalog), `models` (verified downloads), `diagnostics` + `vulkan_icd` (the capability checks and the missing-driver advice they show), `logging`.
 
 ```mermaid
 flowchart LR
@@ -120,9 +120,9 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 | `src/clipboard.rs` | In-process selection ownership: `zwlr_data_control_v1` → `ext_data_control_v1` → X11 `CLIPBOARD` (XWayland bridge) → core `wl_data_device`; one thread each via `calloop` |
 | `src/inserter.rs` | `TextInserter` trait, `UinputInserter` (Ctrl+V via `/dev/uinput`), `ClipboardOnlyInserter` fallback, `InsertOutcome` |
 | `src/overlay.rs` / `overlay_render.rs` / `overlay_wayland.rs` / `overlay_x11.rs` | Presenter trait + backend probe/override; shared tiny-skia/cosmic-text frame render; layer-shell thread; X11 notification window thread |
-|`src/ui.rs` / `ui_onboarding.rs` / `ui_settings.rs` / `ui_problems.rs`|Shared iced vocabulary (messages, `palette`/`metrics`/`style` design tokens, widget helpers, `ChordCapture`, `Step`), onboarding, settings (autosave — every edit applies immediately; config persistence and live reload), startup problem notice (FR-014)|
+|`src/ui.rs` / `ui_icons.rs` / `ui_onboarding.rs` / `ui_settings.rs` / `ui_problems.rs`|Shared iced vocabulary (messages, `palette`/`metrics`/`style` design tokens, widget helpers, `ChordCapture`, `Step`), the drawn icon set (canvas marks on a 16-unit grid, always worded by a tooltip), onboarding, settings (autosave — every edit applies immediately; config persistence and live reload), startup problem notice (FR-014)|
 | `src/config.rs` | `Config`, `Language`, `BackendPreference`, `HotkeySource`, `IdleUnload`, `SharedConfig = Arc<RwLock<Config>>`, atomic TOML save, XDG paths |
-|`src/model_catalog.rs`|Bundled catalog snapshot: 8 streaming variants × 23 artifacts (size + SHA-256 + commit-pinned HF URL), ratings (accuracy/speed), the per-model quant recommendation the cards preselect (`Variant::recommended`, rule + tripwire test in the module; the compute backend deliberately plays no part in it), pure selection/language/rating helpers|
+|`src/model_catalog.rs`|Bundled catalog snapshot: 8 streaming variants × 23 artifacts (size + SHA-256 + commit-pinned HF URL), ratings (accuracy/speed), the per-model quant recommendation the settings rows preselect (`Variant::recommended`, rule + tripwire test in the module; the compute backend deliberately plays no part in it), pure selection/language/rating helpers|
 | `src/models.rs` | `path_for`, resumable verified `ensure` (`<file>.part` + `Range` + SHA-256 + free-space gate) for a `model_catalog::Artifact` |
 | `src/ipc.rs` / `tray.rs` / `diagnostics.rs` / `vulkan_icd.rs` / `logging.rs` | Single-instance socket + JSON-line codec; ksni tray; the four system checks; the missing-Vulkan-driver advice a failed GPU check shows (`/sys/bus/pci/devices` + `/usr/share/vulkan/icd.d` + the package manager on `PATH`, no distro assumed); `tracing-subscriber` init |
 | `build.rs` | Emits `-lcblas` when a `cblas.h` exists and `CBLAS_NO_LINK` is unset (transcribe-cpp-sys only names `libblas`); no-op off Linux |
@@ -140,7 +140,7 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 
 ## Testing & QA
 
-- All tests are **inline `#[cfg(test)] mod tests` blocks at the end of the file** (21 of 26 modules): 206 `#[test]` fns (the count drifts as work lands), 4 `#[ignore]`. No `tests/`, no test fixtures at all, no dev-dependencies, no async runtime in tests.
+- All tests are **inline `#[cfg(test)] mod tests` blocks at the end of the file** (21 of 26 modules): 210 `#[test]` fns (the count drifts as work lands), 4 `#[ignore]`. No `tests/`, no test fixtures at all, no dev-dependencies, no async runtime in tests.
 - Run: `cargo test` (unit), `cargo test -- --ignored` (display-dependent smoke), single test via module path: `cargo test app::tests::hold_to_talk_stops_on_release -- --exact`, whole module: `cargo test config::tests`. No feature flags exist (`--features` fails), and there is no lib target, so doc tests do not apply.
 - Style to follow:
   - Descriptive snake_case sentence names, no `test_` prefix: `save_then_load_roundtrips_and_leaves_no_temp_file` (`src/config.rs:404`), `rejects_48k_stereo_wav_with_the_contract_literal` (`src/audio.rs:957`).

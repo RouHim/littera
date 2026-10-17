@@ -65,6 +65,9 @@ const STATUS_LINE_HEIGHT: f32 = 18.0;
 const TEXT_FONT_SIZE: f32 = 17.0;
 const TEXT_LINE_HEIGHT: f32 = 20.0;
 const MAX_TEXT_LINES: usize = 2;
+/// Rows the status line may use while no transcript sits below it: the second row
+/// is free then, and a notice's recovery must not be elided away.
+const MAX_STATUS_LINES: usize = 2;
 /// Top edge of the status line box.
 const STATUS_TOP: f32 = 16.0;
 /// Top edge of the transcript box (two lines of [`TEXT_LINE_HEIGHT`]).
@@ -130,8 +133,10 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
     let family = cache.family.clone();
     let legend = cache.legend.clone();
 
-    // Status line: a single line in the legend face, elided rather than
-    // overflowing the card. An error speaks in its own ink, like the placards.
+    // Status line in the legend face. With a transcript below it the line stays
+    // single and elides; without one (errors, notices) it may wrap onto the free
+    // second row, because a cut-off recovery is worse than a longer notice. An
+    // error speaks in its own ink, like the placards.
     let status = state_line(&frame.state, frame.elapsed).to_uppercase();
     let status_rgb = match frame.state {
         OverlayState::Error(_) => palette::rgb8(palette::ERROR),
@@ -139,10 +144,19 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
     };
     let status_attrs = text_attrs(&legend, status_rgb);
     let status_metrics = Metrics::new(STATUS_FONT_SIZE * scale_px, STATUS_LINE_HEIGHT * scale_px);
+    let status_lines = if frame.text.is_empty() {
+        MAX_STATUS_LINES
+    } else {
+        1
+    };
     let mut status_buffer = Buffer::new(&mut cache.font_system, status_metrics);
     status_buffer.set_size(Some(content_width), None);
-    status_buffer.set_wrap(Wrap::None);
-    status_buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(1)));
+    status_buffer.set_wrap(if status_lines > 1 {
+        Wrap::WordOrGlyph
+    } else {
+        Wrap::None
+    });
+    status_buffer.set_ellipsize(Ellipsize::End(EllipsizeHeightLimit::Lines(status_lines)));
     status_buffer.set_text(&status, &status_attrs, Shaping::Advanced, None);
     let status_at = (PAD * scale_px, STATUS_TOP * scale_px);
     cache.blit(&mut status_buffer, &mut pixmap, status_at, rgb(status_rgb));
@@ -558,5 +572,54 @@ mod tests {
         let accent = [b, g, r, 255];
         let found = bytes.as_chunks::<4>().0.contains(&accent);
         assert!(found);
+    }
+
+    /// Count `color` pixels inside the row band `rows` of a premultiplied pixmap.
+    fn ink_in_rows(pixmap: &Pixmap, color: (u8, u8, u8), rows: std::ops::Range<u32>) -> usize {
+        let (r, g, b) = color;
+        let width = pixmap.width() as usize;
+        let data = pixmap.data();
+        let mut count = 0;
+        for y in rows {
+            for x in 0..width {
+                let i = (y as usize * width + x) * 4;
+                let pixel = &data[i..i + 4];
+                if pixel[0] == r && pixel[1] == g && pixel[2] == b && pixel[3] == 255 {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    #[test]
+    fn a_long_notice_wraps_onto_the_free_second_row_instead_of_eliding() {
+        let long = "transcription failed: no model is loaded — open settings to choose and \
+                    download a model";
+        let second_row = (STATUS_TOP as u32 + STATUS_LINE_HEIGHT as u32)
+            ..(STATUS_TOP as u32 + 2 * STATUS_LINE_HEIGHT as u32);
+        let error_ink = palette::rgb8(palette::ERROR);
+
+        // No transcript below it: the notice continues on the second row rather
+        // than cutting the recovery away.
+        let alone = test_frame(
+            OverlayState::Error(long.to_owned()),
+            Duration::ZERO,
+            0.0,
+            "",
+        );
+        let wrapped = render(&alone, 1).expect("render succeeds");
+        assert!(ink_in_rows(&wrapped, error_ink, second_row.clone()) > 0);
+
+        // With a transcript the status stays a single line: those rows belong to
+        // the streaming text.
+        let with_text = test_frame(
+            OverlayState::Error(long.to_owned()),
+            Duration::ZERO,
+            0.0,
+            "hello",
+        );
+        let single = render(&with_text, 1).expect("render succeeds");
+        assert_eq!(ink_in_rows(&single, error_ink, second_row), 0);
     }
 }

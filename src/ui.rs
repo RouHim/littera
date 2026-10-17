@@ -176,11 +176,13 @@ pub mod metrics {
 
     // Type scale, logical pixels: one legible ladder. Condensed caps are set a
     // step above the value size, because caps at the same px read smaller.
-    pub const TEXT_CAPTION: f32 = 13.0;
-    pub const TEXT_BODY: f32 = 15.0;
-    pub const TEXT_LEAD: f32 = 16.0;
-    pub const TEXT_HEADING: f32 = 16.0;
-    pub const TEXT_TITLE: f32 = 22.0;
+    // Lifted on 2026-10-17: the first ladder read a step too small on real
+    // screens (user feedback), so every step moved up together.
+    pub const TEXT_CAPTION: f32 = 15.0;
+    pub const TEXT_BODY: f32 = 17.0;
+    pub const TEXT_LEAD: f32 = 18.0;
+    pub const TEXT_HEADING: f32 = 18.0;
+    pub const TEXT_TITLE: f32 = 24.0;
 
     /// The label column of a field row: the key locked, the value aligned.
     pub const FIELD_LABEL_WIDTH: f32 = 96.0;
@@ -1137,6 +1139,31 @@ pub fn card<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'sta
 /// The selected card: same surface, accent border.
 pub fn card_active<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
     surface(content, style::card_selected)
+}
+
+/// A field row: the same plate as a card, tightened to the list's row rhythm
+/// (spec `model-list-field-rows` FR-001) — one row carries the facts of a list
+/// entry in two lines instead of a card's full column.
+pub fn field_row<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
+    row_surface(content, style::card)
+}
+
+/// The active field row: same surface behind the signal frame.
+pub fn field_row_active<M: 'static>(
+    content: impl Into<Element<'static, M>>,
+) -> Element<'static, M> {
+    row_surface(content, style::card_selected)
+}
+
+fn row_surface<M: 'static>(
+    content: impl Into<Element<'static, M>>,
+    style: fn(&Theme) -> container::Style,
+) -> Element<'static, M> {
+    container(content)
+        .padding([metrics::SPACE_SM, metrics::SPACE_LG])
+        .width(Length::Fill)
+        .style(style)
+        .into()
 }
 
 fn surface<M: 'static>(

@@ -27,6 +27,7 @@ mod overlay_x11;
 mod stream_lease;
 mod tray;
 mod ui;
+mod ui_icons;
 mod ui_onboarding;
 mod ui_problems;
 mod ui_settings;

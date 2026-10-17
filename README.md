@@ -139,14 +139,19 @@ cargo build --release
 ```
 
 The model section lists every streaming ASR variant of the bundled `transcribe.cpp`
-catalog snapshot (8 variants, 23 quantized artifacts) as a compact card: name, download
-size, languages, parameters, license, a quant selector and the accuracy/speed bars scaled
-to the best listed model, with filters and sorting, in a capped list that scrolls on its
-own. The state and the action share one line per card (`Not downloaded` + *Download*,
-`On disk` + *Verify*, a progress bar + *Cancel* while a transfer runs); the exact
-published values, the dataset and reference machine, the variant's note and a file's
-SHA-256 are in each card's expandable detail, and the list closes with the catalog
-snapshot version it was rendered from. The quant a card preselects is the catalog's
+catalog snapshot (8 variants, 23 quantized artifacts) as a two-line field row: line one
+carries the name, the download size, the state's lamp and its one icon control (amber lamp
++ download arrow when not downloaded, hollow lamp + tick when on disk and unchecked, green
+lamp + tick when verified, a progress bar + cross while a transfer runs, a fault lamp +
+retry cycle after a failure; each control keeps its word in a tooltip, and the state is
+never spelled out in the row); line two the language summary, the quant selector, the accuracy/speed bars
+scaled to the best listed model, a `No <language>` marker when the variant cannot serve
+the configured language, and the chevron that opens the detail. The active model's row
+leads the list and is not repeated below. Rows are plain page content — the page scroll is
+the only scroll — and the exact published values, the parameter count, the license, the
+dataset and reference machine, the variant's note and a file's SHA-256 are in the row's
+expandable detail; the catalog snapshot version is stated once, in the Storage card. The
+quant a row preselects is the catalog's
 per-model recommendation: the smallest quant measured within 0.05 pp of Q8_0 *and* with a
 published throughput — Q4_K_M on Voxtral Mini 4B (also the only measured speed win),
 Parakeet Unified EN and Parakeet Multitalker; Q8_0 wherever nothing smaller is measured on

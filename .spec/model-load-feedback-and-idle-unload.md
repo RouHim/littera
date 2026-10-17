@@ -84,7 +84,7 @@ The user changes the new setting and the change is persisted and effective immed
 ## Assumptions
 
 - The existing eager startup preload stays: when the model file exists, the daemon loads it at start (now visibly), and the idle countdown covers a model that never served a dictation.
-- The setting lives in the model section of the settings window using the existing selection vocabulary (like the language choice); one global value, not per model.
+- The setting lives in the settings window in its own section right below the model list ("Unload idle model"), using the existing selection vocabulary (like the language choice); one global value, not per model.
 - Unloading releases the model (and its session/stream state) only; the engine thread, hotkey, tray, IPC and clipboard keep running. App-exit behavior is unchanged.
 - Scope is the daemon; the CLI paths stay unchanged, and the onboarding model card reuses the same states.
 - Reload has no latency budget; success is transparency — full capture, transcript after the load, no extra gesture.
