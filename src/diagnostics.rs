@@ -271,6 +271,7 @@ mod tests {
             chord: hotkey::DEFAULT_CHORD.to_owned(),
             trigger_description: hotkey::DEFAULT_CHORD.to_owned(),
             source: HotkeySource::Portal,
+            portal_detail: None,
         }
     }
 
@@ -279,6 +280,7 @@ mod tests {
             chord: hotkey::DEFAULT_CHORD.to_owned(),
             trigger_description: "CTRL+SUPER (device listener)".to_owned(),
             source: HotkeySource::Device,
+            portal_detail: None,
         }
     }
 

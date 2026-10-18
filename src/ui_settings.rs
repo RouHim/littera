@@ -31,6 +31,7 @@ use iced::{Element, Length, Task};
 use crate::app::App;
 use crate::audio;
 use crate::config::{self, Config, IdleUnload, Language};
+use crate::hotkey;
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
 use crate::ui::{self, Message, Tone, metrics, palette, style};
@@ -417,6 +418,16 @@ pub fn view(app: &App) -> Element<'_, Action> {
     .into()
 }
 
+/// Why the device listener is bound although the desktop offers the shortcut
+/// portal (FR-008). Without this the refusal is only in the log, and "Bind…"
+/// looks like it did nothing.
+fn portal_takeover_note(binding: Option<&hotkey::Binding>) -> Option<String> {
+    let detail = binding?.portal_detail.as_ref()?;
+    Some(format!(
+        "The compositor's shortcut dialog was refused: {detail} — Lingua listens to the key devices instead."
+    ))
+}
+
 fn dictation_section(app: &App) -> Element<'_, Action> {
     let ui = &app.settings;
     let config = app.cfg.snapshot();
@@ -467,6 +478,12 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         )));
     }
 
+    // A portal that was tried and refused must never look like a binding that
+    // simply did nothing: the reason stays on the card (FR-008).
+    if let Some(note) = portal_takeover_note(app.binding.as_ref()) {
+        details = details.push(ui::banner(note, Tone::Warning));
+    }
+
     if let Some(error) = &app.hotkey_error {
         details = details.push(ui::banner(error.detail.clone(), Tone::Error));
         details = details.push(ui::mono::<Action>(error.remediation.clone()));
@@ -478,46 +495,28 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         details = details.push(ui::banner(status.text.clone(), status.tone));
     }
 
-    // Both routes stay reachable: the in-window capture is the one control that
-    // lets the user *state* a combination, and the compositor's dialog is the
-    // one that can refuse it (a portal that binds nothing, a chord the desktop
-    // already owns). Offering only the dialog left no way to change the chord.
     let bind_action: Element<'_, Action> = if ui.capture.is_capturing() {
         let preview = ui
             .capture
             .preview()
             .map_or_else(|| "Press the combination…".to_owned(), str::to_owned);
         ui::banner(preview, Tone::Info)
-    } else {
-        let portal = app.portal_available == Some(true);
-        // Buttons as a pair, the sentence after them: the two routes are
-        // alternatives, not a control with a caption.
-        let mut actions = row![
-            button(ui::stamp("Record…"))
-                .style(if portal {
-                    style::secondary_button
-                } else {
-                    style::primary_button
-                })
+    } else if app.portal_available == Some(true) {
+        row![
+            button(ui::stamp("Bind…"))
+                .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::StartCapture),
+                .on_press(Action::BindViaPortal),
+            ui::muted::<Action>("The compositor asks for the shortcut in its own dialog."),
         ]
         .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center);
-        if portal {
-            actions = actions.push(
-                button(ui::stamp("Via the desktop…"))
-                    .style(style::primary_button)
-                    .padding(metrics::BUTTON_PADDING)
-                    .on_press(Action::BindViaPortal),
-            );
-        }
-        actions
-            .push(ui::muted::<Action>(if portal {
-                "Record a combination here, or let the compositor bind it in its own dialog."
-            } else {
-                "Press the combination inside this window."
-            }))
+        .align_y(iced::Alignment::Center)
+        .into()
+    } else {
+        button(ui::stamp("Bind…"))
+            .style(style::primary_button)
+            .padding(metrics::BUTTON_PADDING)
+            .on_press(Action::StartCapture)
             .into()
     };
 
@@ -1307,6 +1306,28 @@ mod tests {
     /// The active selection every test starts from: the unchanged default.
     fn active() -> Selection {
         model_catalog::default_selection()
+    }
+
+    #[test]
+    fn a_refused_portal_is_named_on_the_card_and_a_skipped_one_is_not() {
+        let refused = hotkey::Binding {
+            chord: "CTRL+SUPER".to_owned(),
+            trigger_description: "CTRL+SUPER (device listener)".to_owned(),
+            source: config::HotkeySource::Device,
+            portal_detail: Some("An app id is required".to_owned()),
+        };
+        let note = portal_takeover_note(Some(&refused)).expect("a refusal must be shown");
+        assert!(note.contains("An app id is required"), "{note}");
+        assert!(note.contains("listens to the key devices"), "{note}");
+
+        // The portal was skipped by preference, or bound the shortcut itself:
+        // there is no refusal to report.
+        let chosen = hotkey::Binding {
+            portal_detail: None,
+            ..refused.clone()
+        };
+        assert!(portal_takeover_note(Some(&chosen)).is_none());
+        assert!(portal_takeover_note(None).is_none());
     }
 
     /// The variant ids a filtered/sorted list shows, in display order.

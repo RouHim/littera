@@ -283,12 +283,13 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   desktop does not use, or use a compositor with the shortcut portal (KDE, GNOME 48+,
   Hyprland), where Lingua binds through the compositor and nothing is read from the
   input devices.
-- The **Hotkey section offers both routes**: `Record…` captures a combination inside the
-  window and binds it, `Via the desktop…` hands the configured one to the compositor's
-  own dialog. A chord chosen in that dialog becomes the stored binding (Lingua reads the
-  trigger the compositor reports), so it survives a restart. If `Via the desktop…` never
-  opens a dialog, the portal cannot identify the process — run `./install-desktop.sh`
-  once, restart Lingua, and the dialog appears.
+- The **`Bind…` button in the Hotkey section** opens the compositor's own shortcut dialog
+  where the desktop offers one, and the in-window capture where it does not. A chord
+  chosen in that dialog becomes the stored binding (Lingua reads the trigger the
+  compositor reports), so it survives a restart. Should the portal refuse the request
+  afterwards, the card names the reason and Lingua listens to the key devices instead. If
+  no dialog ever opens, the portal cannot identify the process — run
+  `./install-desktop.sh` once, restart Lingua, and the dialog appears.
 - **Fractional scaling**: the layer-shell overlay rounds the fractional output scale to
   the nearest integer (Wayland's `wp_fractional_scale_v1` is not implemented yet).
 - GNOME's non-activating X11 overlay is covered by this repository's smoke test

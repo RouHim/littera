@@ -196,6 +196,10 @@ pub struct Binding {
     pub chord: String,
     pub trigger_description: String,
     pub source: HotkeySource,
+    /// Why the portal was not used, when it was tried and refused and the
+    /// device listener took over. `None` when the portal bound the shortcut
+    /// itself, or when it was skipped by preference.
+    pub portal_detail: Option<String>,
 }
 
 /// Why no mechanism could be bound, plus the remedy for the user.
@@ -322,6 +326,7 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
                         chord: adopted_chord(&parsed.canonical, &trigger_description),
                         trigger_description,
                         source: HotkeySource::Portal,
+                        portal_detail: None,
                     },
                     rx,
                     Mechanism::Portal(keepalive),
@@ -364,6 +369,7 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
                     chord: parsed.canonical,
                     trigger_description,
                     source: HotkeySource::Device,
+                    portal_detail,
                 },
                 rx,
                 Mechanism::Device(keepalive),
