@@ -263,36 +263,47 @@ fn binding_step(app: &App) -> Element<'_, Action> {
         bound = bound.push(ui::banner(error.to_owned(), Tone::Error));
     }
 
+    // Scenario 3/4: the portal proposes the shortcut when the desktop offers
+    // one, and the in-window capture stays reachable beside it — a portal
+    // dialog that arrives with the wrong combination (or refuses a modifier-only
+    // chord) must not be the only way in.
     let action: Element<'_, Action> = if ui.capture.is_capturing() {
         let preview = ui
             .capture
             .preview()
             .map_or_else(|| "Press the combination…".to_owned(), str::to_owned);
         ui::banner(preview, Tone::Info)
-    } else if app.portal_available == Some(true) {
-        row![
-            button(ui::stamp("Bind…"))
-                .style(style::primary_button)
-                .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::BindViaPortal),
-            ui::muted::<Action>("Your compositor will ask for the shortcut in its own dialog."),
-        ]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into()
     } else {
-        row![
-            button(ui::stamp("Bind…"))
-                .style(style::primary_button)
+        let portal = app.portal_available == Some(true);
+        // Buttons as a pair, the sentence after them: the two routes are
+        // alternatives, not a control with a caption.
+        let mut actions = row![
+            button(ui::stamp("Record…"))
+                .style(if portal {
+                    style::secondary_button
+                } else {
+                    style::primary_button
+                })
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::StartCapture),
-            ui::muted::<Action>(
-                "No shortcut portal here: press the combination inside this window."
-            ),
         ]
         .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into()
+        .align_y(iced::Alignment::Center);
+        if portal {
+            actions = actions.push(
+                button(ui::stamp("Via the desktop…"))
+                    .style(style::primary_button)
+                    .padding(metrics::BUTTON_PADDING)
+                    .on_press(Action::BindViaPortal),
+            );
+        }
+        actions
+            .push(ui::muted::<Action>(if portal {
+                "Record a combination here, or let the compositor ask for it in its own dialog."
+            } else {
+                "Press the combination inside this window."
+            }))
+            .into()
     };
 
     let mut content = column![

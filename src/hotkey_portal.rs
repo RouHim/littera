@@ -8,6 +8,14 @@
 //! running portal does not implement the interface (the reference machine's
 //! case), which is what makes [`PortalError::Unavailable`] detectable without
 //! ever opening a dialog.
+//!
+//! `GlobalShortcuts` is a permission-bearing interface, so the portal wants to
+//! know *which* application asks before it opens a dialog: a caller it cannot
+//! identify is refused with `NotAllowed: An app id is required`, which is the
+//! normal state of a native binary the desktop did not launch itself. Its
+//! requests therefore travel on a session connection that carries [`APP_ID`]
+//! (see [`register`]), and [`available`] checks that registration too — so the
+//! capability probe and the binding agree on whether a dialog can even open.
 
 use std::sync::mpsc::{Receiver, Sender};
 
@@ -15,11 +23,23 @@ use ashpd::desktop::global_shortcuts::{
     Activated, BindShortcutsOptions, Deactivated, GlobalShortcuts, NewShortcut,
 };
 use ashpd::desktop::{CreateSessionOptions, Session};
+use ashpd::zbus::{self, zvariant};
 
 use crate::hotkey::HotkeyEvent;
 
 /// Application-provided id of the single shortcut Lingua binds.
 const SHORTCUT_ID: &str = "dictate";
+
+/// Lingua's application id: the stem of the shipped desktop entry
+/// (`assets/icon/lingua.desktop`), which is what the portal resolves the app
+/// info — and its permission store — from.
+const APP_ID: &str = "lingua";
+
+/// Portal destination, object path, and the host-registry interface a host
+/// application registers its id with.
+const PORTAL_DESTINATION: &str = "org.freedesktop.portal.Desktop";
+const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
+const REGISTRY_INTERFACE: &str = "org.freedesktop.host.portal.Registry";
 
 /// User-readable text shown by the compositor's own binding dialog.
 const SHORTCUT_DESCRIPTION: &str = "Dictate";
@@ -59,9 +79,66 @@ impl std::fmt::Display for PortalError {
 
 impl std::error::Error for PortalError {}
 
-/// Whether the portal interface is present. Opens no dialog.
+/// Whether the portal interface is present *and* this process is registrable
+/// with it. Opens no dialog.
+///
+/// Both halves matter: a portal that implements `GlobalShortcuts` still refuses
+/// a caller it cannot identify, and a refused caller never gets a dialog.
 pub async fn available() -> bool {
-    GlobalShortcuts::new().await.is_ok()
+    match connection().await {
+        Ok(connection) => GlobalShortcuts::with_connection(connection).await.is_ok(),
+        Err(error) => {
+            tracing::debug!(%error, "the shortcut portal is not usable");
+            false
+        }
+    }
+}
+
+/// A session connection that carries [`APP_ID`].
+///
+/// Registration and the shortcut calls have to travel on the *same*
+/// connection: the portal resolves the calling application per connection, so
+/// an id registered elsewhere would not apply to the binds.
+async fn connection() -> Result<zbus::Connection, PortalError> {
+    let connection = zbus::Connection::session().await.map_err(|error| {
+        PortalError::Failed(format!("cannot open a session bus connection: {error}"))
+    })?;
+    register(&connection).await?;
+    Ok(connection)
+}
+
+/// Hand [`APP_ID`] to the host portal registry over `connection`.
+///
+/// The portal resolves app info from an *installed desktop entry*, so the id
+/// is the entry's stem — `lingua.desktop` from `install-desktop.sh` — and a
+/// dotted application id is rejected as unknown. That spelling cannot travel
+/// through `ashpd::register_host_app` (its `AppID` demands a dotted name), so
+/// this call goes over `zbus` directly.
+///
+/// Sandboxed applications already carry an id from their runtime and skip it.
+async fn register(connection: &zbus::Connection) -> Result<(), PortalError> {
+    if ashpd::is_sandboxed() {
+        return Ok(());
+    }
+
+    let proxy = zbus::Proxy::new(
+        connection,
+        PORTAL_DESTINATION,
+        PORTAL_PATH,
+        REGISTRY_INTERFACE,
+    )
+    .await
+    .map_err(|error| PortalError::Failed(format!("cannot reach {REGISTRY_INTERFACE}: {error}")))?;
+
+    let options: std::collections::HashMap<String, zvariant::Value<'_>> =
+        std::collections::HashMap::new();
+    proxy
+        .call_method("Register", &(APP_ID, options))
+        .await
+        .map_err(|error| {
+            PortalError::Failed(format!("registering the app id {APP_ID}: {error}"))
+        })?;
+    Ok(())
 }
 
 /// A live portal binding.
@@ -91,7 +168,11 @@ impl PortalKeepAlive {
 /// Create a portal session, bind `chord` as the preferred trigger, and start
 /// forwarding its press/release signals.
 pub async fn bind(chord: &str) -> Result<PortalBinding, PortalError> {
-    let shortcuts = GlobalShortcuts::new()
+    // Without a registered app id the very first call would be refused and the
+    // dialog would never appear, so fail with the portal's own reason instead.
+    let connection = connection().await?;
+
+    let shortcuts = GlobalShortcuts::with_connection(connection)
         .await
         .map_err(|_| PortalError::Unavailable)?;
 

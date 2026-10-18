@@ -478,28 +478,46 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         details = details.push(ui::banner(status.text.clone(), status.tone));
     }
 
+    // Both routes stay reachable: the in-window capture is the one control that
+    // lets the user *state* a combination, and the compositor's dialog is the
+    // one that can refuse it (a portal that binds nothing, a chord the desktop
+    // already owns). Offering only the dialog left no way to change the chord.
     let bind_action: Element<'_, Action> = if ui.capture.is_capturing() {
         let preview = ui
             .capture
             .preview()
             .map_or_else(|| "Press the combination…".to_owned(), str::to_owned);
         ui::banner(preview, Tone::Info)
-    } else if app.portal_available == Some(true) {
-        row![
-            button(ui::stamp("Bind…"))
-                .style(style::primary_button)
+    } else {
+        let portal = app.portal_available == Some(true);
+        // Buttons as a pair, the sentence after them: the two routes are
+        // alternatives, not a control with a caption.
+        let mut actions = row![
+            button(ui::stamp("Record…"))
+                .style(if portal {
+                    style::secondary_button
+                } else {
+                    style::primary_button
+                })
                 .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::BindViaPortal),
-            ui::muted::<Action>("The compositor asks for the shortcut in its own dialog."),
+                .on_press(Action::StartCapture),
         ]
         .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into()
-    } else {
-        button(ui::stamp("Bind…"))
-            .style(style::primary_button)
-            .padding(metrics::BUTTON_PADDING)
-            .on_press(Action::StartCapture)
+        .align_y(iced::Alignment::Center);
+        if portal {
+            actions = actions.push(
+                button(ui::stamp("Via the desktop…"))
+                    .style(style::primary_button)
+                    .padding(metrics::BUTTON_PADDING)
+                    .on_press(Action::BindViaPortal),
+            );
+        }
+        actions
+            .push(ui::muted::<Action>(if portal {
+                "Record a combination here, or let the compositor bind it in its own dialog."
+            } else {
+                "Press the combination inside this window."
+            }))
             .into()
     };
 

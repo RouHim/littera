@@ -913,7 +913,16 @@ impl App {
                     }
                 }
                 let source = self.binding.as_ref().map(|binding| binding.source);
-                if let Err(error) = self.cfg.update(|cfg| cfg.hotkey_source = source) {
+                let bound_chord = self.binding.as_ref().map(|binding| binding.chord.clone());
+                if let Err(error) = self.cfg.update(|cfg| {
+                    cfg.hotkey_source = source;
+                    // The compositor may have bound a chord the user picked in
+                    // its own dialog: that is the chord to request next time,
+                    // because the portal does not remember it for us.
+                    if let Some(chord) = bound_chord {
+                        cfg.hotkey = chord;
+                    }
+                }) {
                     tracing::warn!(%error, "persisting the hotkey source failed");
                 }
                 self.refresh_checks();

@@ -144,6 +144,52 @@ pub fn normalize_chord(raw: &str) -> anyhow::Result<String> {
     Ok(parse_chord(raw)?.canonical)
 }
 
+/// The chord to treat as live after a mechanism reported its trigger.
+///
+/// A compositor may report a chord the user picked in its own dialog instead of
+/// the requested one. When that report names a chord Lingua can spell, it *is*
+/// the live chord (and the one to request next time); otherwise the requested
+/// chord stays the recorded truth.
+pub fn adopted_chord(requested: &str, trigger: &str) -> String {
+    trigger_chord(trigger).unwrap_or_else(|| requested.to_owned())
+}
+
+/// The chord a compositor's trigger description names, when it names one.
+///
+/// GNOME spells a bound keybinding as `Press <Modifier>key` — `Press <Alt>r`
+/// for Alt+R — and reports a trigger that is already a chord (`Ctrl+Super`)
+/// as-is. Anything else (another compositor's prose, a key Lingua cannot
+/// spell) is `None`: the requested chord stays the recorded one.
+fn trigger_chord(trigger: &str) -> Option<String> {
+    let trimmed = trigger.trim();
+    let body = trimmed.strip_prefix("Press ").unwrap_or(trimmed);
+    if !body.contains('<') {
+        return normalize_chord(body).ok();
+    }
+
+    let mut tokens: Vec<&str> = Vec::new();
+    let mut rest = body;
+    while let Some(stripped) = rest.strip_prefix('<') {
+        let (name, tail) = stripped.split_once('>')?;
+        tokens.push(match name {
+            "Control" | "Ctrl" | "Primary" => "CTRL",
+            "Super" | "Meta" | "Mod4" => "SUPER",
+            "Alt" | "Mod1" => "ALT",
+            "Shift" => "SHIFT",
+            _ => return None,
+        });
+        rest = tail;
+    }
+    if !rest.is_empty() {
+        tokens.push(rest);
+    }
+    if tokens.is_empty() {
+        return None;
+    }
+
+    normalize_chord(&tokens.join("+")).ok()
+}
+
 /// A bound mechanism: which chord is live and how it is delivered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Binding {
@@ -273,7 +319,7 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
                 );
                 return Ok(HotkeyHandle::new(
                     Binding {
-                        chord: parsed.canonical,
+                        chord: adopted_chord(&parsed.canonical, &trigger_description),
                         trigger_description,
                         source: HotkeySource::Portal,
                     },
@@ -436,6 +482,42 @@ mod tests {
 
     fn canonical(raw: &str) -> String {
         normalize_chord(raw).unwrap()
+    }
+
+    #[test]
+    fn adopts_the_chord_a_compositor_bound_instead_of_the_requested_one() {
+        // `trigger=Press <Alt>r` is what GNOME's shortcut dialog reported after
+        // the chord was changed there; plain spellings arrive as chords.
+        assert_eq!(adopted_chord("CTRL+SUPER", "Press <Alt>r"), "ALT+R");
+        assert_eq!(
+            adopted_chord("CTRL+SUPER", "Press <Control><Shift>F9"),
+            "CTRL+SHIFT+F9"
+        );
+        assert_eq!(adopted_chord("CTRL+SUPER", "Ctrl+Super"), "CTRL+SUPER");
+        assert_eq!(adopted_chord("CTRL+SUPER", "CTRL+ALT"), "CTRL+ALT");
+        assert_eq!(
+            adopted_chord("CTRL+SUPER", "alt+shift+space"),
+            "ALT+SHIFT+SPACE"
+        );
+        // A modifier-only binding is a chord too.
+        assert_eq!(
+            adopted_chord("CTRL+ALT", "Press <Control><Super>"),
+            "CTRL+SUPER"
+        );
+    }
+
+    #[test]
+    fn keeps_the_requested_chord_when_the_trigger_is_not_a_chord() {
+        // A compositor may describe the trigger in prose, or bind a key Lingua
+        // cannot spell: the binding is live, but only the requested chord is
+        // one Lingua can record and request next time.
+        assert_eq!(adopted_chord("CTRL+SUPER", ""), "CTRL+SUPER");
+        assert_eq!(adopted_chord("CTRL+SUPER", "nothing bound"), "CTRL+SUPER");
+        assert_eq!(
+            adopted_chord("CTRL+SUPER", "Press <Alt>Page_Up"),
+            "CTRL+SUPER"
+        );
+        assert_eq!(adopted_chord("CTRL+SUPER", "Press <Hyper>x"), "CTRL+SUPER");
     }
 
     #[test]

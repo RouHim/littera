@@ -80,6 +80,7 @@ code paths above only need the six libraries listed.
 | D-Bus session bus (`/run/user/<uid>/bus`) | tray icon and desktop portal | the tray is only logged as unavailable; the portal path falls back to the device listener |
 | StatusNotifier host (provided by the desktop shell) | tray icon (FR-017) | settings stay reachable by relaunching the binary |
 | `xdg-desktop-portal` exposing `GlobalShortcuts` | compositor-side hotkey binding | the listen-only device listener is used instead (FR-008) |
+| an installed desktop entry (`install-desktop.sh` puts `lingua.desktop` in `~/.local/share/applications`) | the portal can identify the application before it opens its shortcut dialog | the portal refuses the request (`NotAllowed: An app id is required`) and the device listener binds instead; the in-window capture in Settings remains the way to pick a combination |
 | logind `uaccess` ACL on `/dev/input/event*`, or membership in the `input` group | reading the hotkey | the system check prints `sudo usermod -aG input $USER` + re-login |
 | logind `uaccess` ACL on `/dev/uinput` | synthesizing the paste chord | clipboard-only mode; the overlay names the blocked path (FR-013) |
 | XWayland | GNOME overlay and the X11 clipboard bridge | no overlay on GNOME, no X11 clipboard fallback |
@@ -282,6 +283,12 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   desktop does not use, or use a compositor with the shortcut portal (KDE, GNOME 48+,
   Hyprland), where Lingua binds through the compositor and nothing is read from the
   input devices.
+- The **Hotkey section offers both routes**: `Record…` captures a combination inside the
+  window and binds it, `Via the desktop…` hands the configured one to the compositor's
+  own dialog. A chord chosen in that dialog becomes the stored binding (Lingua reads the
+  trigger the compositor reports), so it survives a restart. If `Via the desktop…` never
+  opens a dialog, the portal cannot identify the process — run `./install-desktop.sh`
+  once, restart Lingua, and the dialog appears.
 - **Fractional scaling**: the layer-shell overlay rounds the fractional output scale to
   the nearest integer (Wayland's `wp_fractional_scale_v1` is not implemented yet).
 - GNOME's non-activating X11 overlay is covered by this repository's smoke test
