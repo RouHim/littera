@@ -6,6 +6,18 @@
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
+/// The process-wide Rust allocator: mimalloc instead of the platform malloc.
+///
+/// Lingua allocates concurrently from several threads at once — a fresh buffer per capture
+/// callback that the capture thread later frees, the engine worker, one listener thread per
+/// keyboard, the calloop clipboard loops, iced's layout and render passes. A buffer allocated
+/// on one thread and freed on another is exactly the pattern that makes glibc's allocator take
+/// an arena lock; mimalloc answers it from a thread-free list. Swapping in mimalloc is also the
+/// documented fix for musl's much slower default allocator
+/// (<https://nickb.dev/blog/default-musl-allocator-considered-harmful-to-performance/>).
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod app;
 mod audio;
 mod clipboard;

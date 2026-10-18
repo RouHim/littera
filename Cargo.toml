@@ -6,6 +6,9 @@ rust-version = "1.98"
 publish = false
 
 [dependencies]
+# Process-wide Rust allocator (see the `#[global_allocator]` in src/main.rs); compiled and
+# linked in statically, no runtime dependency.
+mimalloc = "0.1"
 # In-process ASR engine (statically linked transcribe.cpp, Vulkan backend enabled).
 transcribe-cpp = { version = "0.4.0", default-features = false, features = ["vulkan"] }
 # GUI toolkit for the onboarding/settings windows. Defaults are off only to drop
