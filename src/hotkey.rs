@@ -144,14 +144,15 @@ pub fn normalize_chord(raw: &str) -> anyhow::Result<String> {
     Ok(parse_chord(raw)?.canonical)
 }
 
-/// The chord to treat as live after a mechanism reported its trigger.
+/// Whether a compositor's report is the binding that was asked for.
 ///
-/// A compositor may report a chord the user picked in its own dialog instead of
-/// the requested one. When that report names a chord Lingua can spell, it *is*
-/// the live chord (and the one to request next time); otherwise the requested
-/// chord stays the recorded truth.
-pub fn adopted_chord(requested: &str, trigger: &str) -> String {
-    trigger_chord(trigger).unwrap_or_else(|| requested.to_owned())
+/// `preferred_trigger` is only a hint: a portal that already holds a shortcut
+/// for this application answers from its own store without asking anyone, and
+/// the user would silently end up with that chord instead of the one they
+/// recorded. Only an equal chord counts as bound; anything else sends the
+/// binding to the device listener, which honours the chord as given.
+fn portal_honoured(requested: &str, trigger: &str) -> bool {
+    trigger_chord(trigger).is_some_and(|chord| chord == requested)
 }
 
 /// The chord a compositor's trigger description names, when it names one.
@@ -311,26 +312,46 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
     if portal_enabled(preferred) {
         match crate::hotkey_portal::bind(&parsed.canonical).await {
             Ok(bound) => {
-                let PortalBinding {
-                    trigger_description,
-                    rx,
-                    keepalive,
-                } = bound;
-                tracing::info!(
-                    chord = %parsed.canonical,
-                    trigger = %trigger_description,
-                    "dictation hotkey bound through the shortcut portal"
-                );
-                return Ok(HotkeyHandle::new(
-                    Binding {
-                        chord: adopted_chord(&parsed.canonical, &trigger_description),
+                if portal_honoured(&parsed.canonical, &bound.trigger_description) {
+                    let PortalBinding {
                         trigger_description,
-                        source: HotkeySource::Portal,
-                        portal_detail: None,
-                    },
-                    rx,
-                    Mechanism::Portal(keepalive),
+                        rx,
+                        keepalive,
+                    } = bound;
+                    tracing::info!(
+                        chord = %parsed.canonical,
+                        trigger = %trigger_description,
+                        "dictation hotkey bound through the shortcut portal"
+                    );
+                    return Ok(HotkeyHandle::new(
+                        Binding {
+                            chord: parsed.canonical,
+                            trigger_description,
+                            source: HotkeySource::Portal,
+                            portal_detail: None,
+                        },
+                        rx,
+                        Mechanism::Portal(keepalive),
+                    ));
+                }
+
+                // `preferred_trigger` is only a hint, and a portal that already
+                // holds a shortcut for this application answers from its own
+                // store instead — silently, with a chord nobody chose now.
+                // Dropping the binding retires its forwarder, which closes the
+                // session on its way out, so no second, different binding stays
+                // alive while the device listener serves the chord that was
+                // asked for.
+                tracing::warn!(
+                    chord = %parsed.canonical,
+                    trigger = %bound.trigger_description,
+                    "the shortcut portal did not bind the requested chord; the device listener takes over"
+                );
+                portal_detail = Some(format!(
+                    "it bound `{}` instead of {}",
+                    bound.trigger_description, parsed.canonical
                 ));
+                drop(bound);
             }
             Err(err) => {
                 tracing::warn!(
@@ -491,39 +512,26 @@ mod tests {
     }
 
     #[test]
-    fn adopts_the_chord_a_compositor_bound_instead_of_the_requested_one() {
-        // `trigger=Press <Alt>r` is what GNOME's shortcut dialog reported after
-        // the chord was changed there; plain spellings arrive as chords.
-        assert_eq!(adopted_chord("CTRL+SUPER", "Press <Alt>r"), "ALT+R");
-        assert_eq!(
-            adopted_chord("CTRL+SUPER", "Press <Control><Shift>F9"),
-            "CTRL+SHIFT+F9"
-        );
-        assert_eq!(adopted_chord("CTRL+SUPER", "Ctrl+Super"), "CTRL+SUPER");
-        assert_eq!(adopted_chord("CTRL+SUPER", "CTRL+ALT"), "CTRL+ALT");
-        assert_eq!(
-            adopted_chord("CTRL+SUPER", "alt+shift+space"),
-            "ALT+SHIFT+SPACE"
-        );
-        // A modifier-only binding is a chord too.
-        assert_eq!(
-            adopted_chord("CTRL+ALT", "Press <Control><Super>"),
-            "CTRL+SUPER"
-        );
+    fn a_portal_report_counts_as_bound_only_when_it_is_the_requested_chord() {
+        // GNOME reports the accelerator as `Press <Modifier>key`; every
+        // spelling Lingua understands has to arrive as the requested chord.
+        assert!(portal_honoured("ALT+R", "Press <Alt>r"));
+        assert!(portal_honoured("CTRL+SHIFT+F9", "Press <Control><Shift>F9"));
+        assert!(portal_honoured("CTRL+SUPER", "Ctrl+Super"));
+        assert!(portal_honoured("CTRL+SUPER", "Press <Control><Super>"));
+        assert!(portal_honoured("ALT+SHIFT+SPACE", "alt+shift+space"));
     }
 
     #[test]
-    fn keeps_the_requested_chord_when_the_trigger_is_not_a_chord() {
-        // A compositor may describe the trigger in prose, or bind a key Lingua
-        // cannot spell: the binding is live, but only the requested chord is
-        // one Lingua can record and request next time.
-        assert_eq!(adopted_chord("CTRL+SUPER", ""), "CTRL+SUPER");
-        assert_eq!(adopted_chord("CTRL+SUPER", "nothing bound"), "CTRL+SUPER");
-        assert_eq!(
-            adopted_chord("CTRL+SUPER", "Press <Alt>Page_Up"),
-            "CTRL+SUPER"
-        );
-        assert_eq!(adopted_chord("CTRL+SUPER", "Press <Hyper>x"), "CTRL+SUPER");
+    fn a_different_or_unreadable_portal_report_sends_the_binding_to_the_device_listener() {
+        // A portal that already holds a shortcut for this application answers
+        // from its store: that is not the chord the user just recorded, and it
+        // must never replace it silently.
+        assert!(!portal_honoured("CTRL+ALT", "Press <Alt>r"));
+        assert!(!portal_honoured("CTRL+SUPER", ""));
+        assert!(!portal_honoured("CTRL+SUPER", "nothing bound"));
+        assert!(!portal_honoured("CTRL+SUPER", "Press <Alt>Page_Up"));
+        assert!(!portal_honoured("CTRL+SUPER", "Press <Hyper>x"));
     }
 
     #[test]

@@ -80,7 +80,7 @@ code paths above only need the six libraries listed.
 | D-Bus session bus (`/run/user/<uid>/bus`) | tray icon and desktop portal | the tray is only logged as unavailable; the portal path falls back to the device listener |
 | StatusNotifier host (provided by the desktop shell) | tray icon (FR-017) | settings stay reachable by relaunching the binary |
 | `xdg-desktop-portal` exposing `GlobalShortcuts` | compositor-side hotkey binding | the listen-only device listener is used instead (FR-008) |
-| an installed desktop entry (`install-desktop.sh` puts `lingua.desktop` in `~/.local/share/applications`) | the portal can identify the application before it opens its shortcut dialog | the portal refuses the request (`NotAllowed: An app id is required`) and the device listener binds instead; the in-window capture in Settings remains the way to pick a combination |
+| an installed desktop entry (`install-desktop.sh` puts `lingua.desktop` in `~/.local/share/applications`) | the portal can identify the application before it opens its shortcut dialog | the portal refuses the request (`NotAllowed: An app id is required`) and the listen-only key devices bind the recorded combination instead |
 | logind `uaccess` ACL on `/dev/input/event*`, or membership in the `input` group | reading the hotkey | the system check prints `sudo usermod -aG input $USER` + re-login |
 | logind `uaccess` ACL on `/dev/uinput` | synthesizing the paste chord | clipboard-only mode; the overlay names the blocked path (FR-013) |
 | XWayland | GNOME overlay and the X11 clipboard bridge | no overlay on GNOME, no X11 clipboard fallback |
@@ -283,13 +283,15 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   desktop does not use, or use a compositor with the shortcut portal (KDE, GNOME 48+,
   Hyprland), where Lingua binds through the compositor and nothing is read from the
   input devices.
-- The **`Bind…` button in the Hotkey section** opens the compositor's own shortcut dialog
-  where the desktop offers one, and the in-window capture where it does not. A chord
-  chosen in that dialog becomes the stored binding (Lingua reads the trigger the
-  compositor reports), so it survives a restart. Should the portal refuse the request
-  afterwards, the card names the reason and Lingua listens to the key devices instead. If
-  no dialog ever opens, the portal cannot identify the process — run
-  `./install-desktop.sh` once, restart Lingua, and the dialog appears.
+- The **`Bind…` button in the Hotkey section asks for the combination**: press it in the
+  window and it is bound. The mechanism still follows the desktop's capability — the
+  compositor's portal when it binds exactly that combination (its own dialog shows up for
+  a first binding, and a chord chosen there counts), otherwise the listen-only key
+  devices. A portal that already holds a shortcut for the application answers from its
+  own store without asking anyone; that answer never replaces the recorded combination,
+  the card names it, and the key devices serve the chord you pressed. If the portal never
+  opens a dialog at all, it cannot identify the process — run `./install-desktop.sh`
+  once and restart Lingua.
 - **Fractional scaling**: the layer-shell overlay rounds the fractional output scale to
   the nearest integer (Wayland's `wp_fractional_scale_v1` is not implemented yet).
 - GNOME's non-activating X11 overlay is covered by this repository's smoke test

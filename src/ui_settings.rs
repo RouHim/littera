@@ -61,7 +61,6 @@ pub enum Action {
     SelectIdleUnload(config::IdleUnload),
     /// Pick the capture device: its `alsa:…` identifier, or `system` (FR-007).
     SelectInputDevice(String),
-    BindViaPortal,
     StartCapture,
     OpenModelDir,
 }
@@ -299,15 +298,6 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
         Action::SelectIdleUnload(value) => return select_idle_unload(app, value),
         Action::SelectInputDevice(device) => return select_input_device(app, device),
         Action::OpenModelDir => return app.open_model_dir(),
-        // The portal binds the configured chord; the compositor's own dialog
-        // reports which trigger it actually registered (Scenario 1.3).
-        Action::BindViaPortal => {
-            let chord = app.cfg.snapshot().hotkey;
-            return vec![crate::app::bind_task(
-                &chord,
-                Some(config::HotkeySource::Portal),
-            )];
-        }
         Action::StartCapture => app.settings.capture.start(),
     }
 
@@ -495,29 +485,26 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         details = details.push(ui::banner(status.text.clone(), status.tone));
     }
 
+    // One control, and it asks: the chord comes from the user, not from
+    // whatever the desktop happens to have stored for this application. The
+    // mechanism still follows the configured preference (hotkey::bind).
     let bind_action: Element<'_, Action> = if ui.capture.is_capturing() {
         let preview = ui
             .capture
             .preview()
             .map_or_else(|| "Press the combination…".to_owned(), str::to_owned);
         ui::banner(preview, Tone::Info)
-    } else if app.portal_available == Some(true) {
+    } else {
         row![
             button(ui::stamp("Bind…"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::BindViaPortal),
-            ui::muted::<Action>("The compositor asks for the shortcut in its own dialog."),
+                .on_press(Action::StartCapture),
+            ui::muted::<Action>("Press the combination inside this window."),
         ]
         .spacing(metrics::SPACE_MD)
         .align_y(iced::Alignment::Center)
         .into()
-    } else {
-        button(ui::stamp("Bind…"))
-            .style(style::primary_button)
-            .padding(metrics::BUTTON_PADDING)
-            .on_press(Action::StartCapture)
-            .into()
     };
 
     let hotkey_card = ui::card(column![details, bind_action].spacing(metrics::SPACE_MD));

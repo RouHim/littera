@@ -4,7 +4,7 @@ use iced::widget::{Space, button, column, pick_list, radio, row, scrollable};
 use iced::{Element, Length, Task};
 
 use crate::app::{App, AppEvent};
-use crate::config::{self, Language};
+use crate::config::Language;
 use crate::hotkey;
 use crate::model_catalog;
 use crate::models;
@@ -18,8 +18,6 @@ pub enum Action {
     CancelDownload,
     RetryDownload,
     SelectLanguage(Language),
-    /// Use the compositor's own binding dialog (Scenario 1.3).
-    BindViaPortal,
     /// Capture the chord inside the window (Scenario 1.4).
     StartCapture,
     Back,
@@ -39,13 +37,6 @@ pub fn update(app: &mut App, action: Action) -> Vec<Task<Message>> {
         }
         Action::CancelDownload => app.cancel_download(),
         Action::SelectLanguage(language) => app.onboarding.language = language,
-        Action::BindViaPortal => {
-            let chord = app.onboarding.hotkey.clone();
-            return vec![crate::app::bind_task(
-                &chord,
-                Some(config::HotkeySource::Portal),
-            )];
-        }
         Action::StartCapture => app.onboarding.capture.start(),
         Action::Back => {
             if let Some(previous) = app.onboarding.step.previous() {
@@ -269,17 +260,6 @@ fn binding_step(app: &App) -> Element<'_, Action> {
             .preview()
             .map_or_else(|| "Press the combination…".to_owned(), str::to_owned);
         ui::banner(preview, Tone::Info)
-    } else if app.portal_available == Some(true) {
-        row![
-            button(ui::stamp("Bind…"))
-                .style(style::primary_button)
-                .padding(metrics::BUTTON_PADDING)
-                .on_press(Action::BindViaPortal),
-            ui::muted::<Action>("Your compositor will ask for the shortcut in its own dialog."),
-        ]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .into()
     } else {
         row![
             button(ui::stamp("Bind…"))
@@ -287,7 +267,7 @@ fn binding_step(app: &App) -> Element<'_, Action> {
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::StartCapture),
             ui::muted::<Action>(
-                "No shortcut portal here: press the combination inside this window."
+                "Press the combination inside this window — the desktop asks for it in its own dialog only when it offers that portal.",
             ),
         ]
         .spacing(metrics::SPACE_MD)
