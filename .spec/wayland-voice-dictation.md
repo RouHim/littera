@@ -30,7 +30,7 @@ The application runs idle in the background. The user focuses a text field in an
 1. Given the application is running idle, When the user presses the bound hotkey, Then recording starts and the overlay appears without changing the keyboard focus of the target application.
 2. Given recording is active, When the user speaks, Then partial text appears in the overlay within one second of speech onset and continues to update while speaking.
 3. Given recording is active, When the user presses the hotkey again or releases it after holding it, Then recording stops, the final transcript is produced, and the text is inserted at the cursor of the application that had focus.
-4. Given a dictation finished, When the user pastes manually, Then the transcript is still present on the clipboard.
+4. Given a dictation finished, When the user pastes manually, Then the text selection that was on the clipboard before the dictation is there again — the transcript occupied it only for the paste — unless the input-injection device was not writable, in which case the transcript itself is still on the clipboard.
 5. Given the language is set to `de-DE` or `en-US`, When the user dictates a sentence in that language, Then the inserted text is correct including punctuation, capitalization and language-specific characters such as umlauts and ß.
 6. Given the user says nothing, When recording stops, Then nothing is inserted and the overlay states that no speech was detected.
 
@@ -78,7 +78,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-009**: The proposed default hotkey MUST be `Ctrl+Super`. The user MUST be able to rebind it during onboarding and later in settings by pressing the combination in the application window, and a rebind MUST take effect without restarting the application. The combination the user pressed MUST be the binding that is served — a portal that reports a different trigger MUST NOT replace it — and it MUST survive a restart.
 - **FR-010**: Both trigger gestures MUST be supported: press-to-start/press-to-stop, and hold-to-record/release-to-stop, separated by a minimum hold duration so that a short release belonging to a tap never stops the recording that tap started.
 - **FR-011**: The dictation overlay MUST appear on the monitor that has keyboard focus — as a layer-surface overlay where the compositor supports that protocol, otherwise as a regular non-activating window. It MUST NOT take keyboard focus, MUST be visible only while recording or transcribing, MUST display the current state (recording with elapsed time and input level, transcribing, no speech, error) plus the streaming partial text, and MUST NOT reserve layout space on the monitor.
-- **FR-012**: The final transcript MUST be placed on the Wayland clipboard and MUST remain there after insertion; the application MUST NOT implement clipboard restoration.
+- **FR-012**: The final transcript MUST be placed on the Wayland clipboard before the paste chord is emitted. After an auto-pasted insertion the application MUST put the text selection that the transcript displaced back on the clipboard, once the focused application had time to fetch the transcript; a copy that arrives in between MUST win. In clipboard-only mode (FR-013) the transcript MUST stay on the clipboard. Only UTF-8 text selections are restored; anything else is left to the transcript.
 - **FR-013**: Automatic insertion MUST synthesize the paste chord in-process into the kernel's input-injection device. If that device is not writable, the application MUST degrade to clipboard-only mode and state the reason and the remediation in the UI. External paste tools and paste daemons MUST NOT be dependencies.
 - **FR-014**: A system-check surface MUST report hotkey availability, paste-permission availability, GPU backend/device, and overlay availability, and MUST name the exact command or configuration to fix any failing check. When a check fails at startup, a notice window MUST open by itself — also when the daemon otherwise starts without any window. Checks MUST be re-runnable on demand without restarting the application.
 - **FR-015**: The application MUST run as a single instance using an XDG runtime-directory socket; a second launch MUST forward "open settings" to the running instance and exit.
@@ -113,7 +113,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - The model file can disappear or be corrupted after a successful download; the next dictation then reports an actionable error and offers to download again.
 - The first download can be up to 751 MB on a nearly full disk; free space is checked before the download starts.
 - Voice-activity detection and endpointing are not part of the MVP; silence is handled only through the empty-transcript rule, and very short utterances under automatic language detection may be mislabelled, so an explicit language must always be selectable.
-- Terminals frequently require a different paste chord than `Ctrl+V`; the MVP uses `Ctrl+V` only and documents this as a known limitation, with the clipboard path as the manual workaround.
+- Terminals frequently require a different paste chord than `Ctrl+V`; the MVP uses `Ctrl+V` only and documents this as a known limitation — the transcript occupies the clipboard only until the restoration runs (FR-012), so a terminal cannot be served by the manual clipboard route; clipboard-only mode (no writing injection device) is the workaround.
 
 ## Research Notes
 
@@ -141,7 +141,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - The default model is the multilingual Q8_0 variant; the default language is `auto`.
 - Models remain resident in memory after the first dictation and are released when the application quits.
 - The system-default microphone is used; no input-device picker is part of the MVP.
-- The transcript stays on the clipboard after insertion; no clipboard restoration is implemented.
+- After an auto-pasted insertion the displaced text selection returns to the clipboard once the paste had its chance (FR-012); a newer copy wins, and only clipboard-only mode leaves the transcript on the clipboard.
 - Recordings shorter than roughly 0.3 seconds and recordings whose transcript is empty are discarded.
 - Settings are reopened by relaunching the application or through the tray; there is no dedicated "open settings" hotkey.
 - Terminal applications that need a different paste chord are a documented limitation of the MVP, not a handled case.

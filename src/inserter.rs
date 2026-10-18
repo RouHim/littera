@@ -5,9 +5,12 @@
 //! up like a real device — no `ydotool`, no external paste tool, no shelling out.
 //!
 //! Ordering invariant: the transcript reaches the clipboard *before* the chord is emitted,
-//! otherwise the focused application pastes the previous clipboard content (FR-013). When
+//! otherwise the focused application pastes the previous clipboard content (FR-013). The text
+//! selection that paste displaces is read first and put back once the chord had its chance, so a
+//! dictation does not eat the user's clipboard (FR-012); a copy that arrives in between wins. When
 //! `/dev/uinput` is not writable the app degrades to copying only (Scenario 4.1, SC-005) and says
-//! so, naming the blocked path.
+//! so, naming the blocked path — in that mode the transcript *stays* on the clipboard, because
+//! it is the only way the text reaches the user.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -29,6 +32,13 @@ const VIRTUAL_KEYBOARD_NAME: &str = "lingua virtual keyboard";
 /// paste lands: the clipboard confirms the selection itself, this margin covers the target
 /// application's fetch.
 const PASTE_CHORD_HOLD: Duration = Duration::from_millis(25);
+
+/// Time between the paste chord and putting the displaced selection back (FR-012).
+///
+/// The focused application fetches the transcript in reaction to the chord; this grace covers that
+/// fetch — including a slowed-down toolkit — before the old text returns. Restore too early and
+/// the paste would land on the old content instead of the transcript.
+const CLIPBOARD_RESTORE_GRACE: Duration = Duration::from_millis(500);
 
 /// `input_event` values for a pressed and a released key.
 const KEY_PRESS: i32 = 1;
@@ -133,12 +143,19 @@ impl UinputInserter {
 
 impl TextInserter for UinputInserter {
     fn insert(&self, text: &str) -> Result<InsertOutcome> {
+        // The text the paste is about to displace is read first (FR-012); without it the
+        // dictation would silently eat whatever the user copied earlier.
+        let displaced = self.clipboard.snapshot();
         // Invariant: the selection must be ours before the chord is emitted (FR-013).
         self.clipboard.copy_text(text)?;
         let mut device = self.device.lock().map_err(|_| anyhow::anyhow!(POISONED))?;
         device.emit(&paste_chord_press()).context(EMIT_FAILED)?;
         std::thread::sleep(PASTE_CHORD_HOLD);
         device.emit(&paste_chord_release()).context(EMIT_FAILED)?;
+        drop(device);
+        // Only after the grace may the previous selection return (FR-012).
+        std::thread::sleep(CLIPBOARD_RESTORE_GRACE);
+        restore_displaced(&self.clipboard, displaced);
         tracing::info!(
             chars = text.chars().count(),
             "transcript pasted with Ctrl+V",
@@ -147,8 +164,27 @@ impl TextInserter for UinputInserter {
     }
 }
 
+/// Put the selection auto-paste displaced back, best effort (FR-012).
+///
+/// Never fails the insertion: `None` means the snapshot read no text (nothing to put back, the
+/// transcript stays), `Ok(false)` means a newer copy won and is kept.
+fn restore_displaced(clipboard: &Clipboard, displaced: Option<String>) {
+    let Some(previous) = displaced else {
+        tracing::debug!("no text selection was displaced; the transcript stays on the clipboard");
+        return;
+    };
+    match clipboard.restore(&previous) {
+        Ok(true) => tracing::info!(
+            chars = previous.chars().count(),
+            "previous clipboard content restored",
+        ),
+        Ok(false) => tracing::debug!("a newer copy arrived; keeping it on the clipboard"),
+        Err(err) => tracing::warn!(%err, "restoring the displaced clipboard content failed"),
+    }
+}
+
 /// Fallback used when auto-paste is unavailable: the transcript still reaches the clipboard and the
-/// user pastes it with `Ctrl+V`.
+/// user pastes it with `Ctrl+V` — so it *stays* there and nothing is restored (FR-012).
 pub struct ClipboardOnlyInserter {
     clipboard: Arc<Clipboard>,
     reason: String,

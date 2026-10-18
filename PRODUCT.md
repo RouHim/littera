@@ -69,8 +69,9 @@ tooling cannot truthfully claim.
   completion; model selector with size and quality notes; language `auto`,
   `en-US`, `de-DE`; hotkey rebindable live; tap-to-toggle and hold-to-talk
   separated by a minimum-hold threshold; 5-minute recording cap; exactly one
-  insertion per dictation; transcript stays on the clipboard afterwards (no
-  restoration).
+  insertion per dictation; the text selection that a paste displaces is put
+  back afterwards, so a dictation does not eat the clipboard (clipboard-only
+  mode keeps the transcript).
 - Streaming recognition with partials on the overlay; overlay pinned bottom
   centre on layer-shell compositors, a plain non-activating window on GNOME;
   it never takes keyboard focus and reserves no layout space.

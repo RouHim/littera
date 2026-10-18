@@ -51,6 +51,12 @@ when it otherwise starts without any window.
 | `libcblas.so.3` | `cblas` |
 | `libgfortran.so.5` | `libgfortran` (pulled in by `blas`) |
 
+Not in that list because it is **linked in statically**: `mimalloc`, installed as the
+process-wide Rust allocator at the crate root (`#[global_allocator]`, `src/main.rs`).
+Every Rust allocation avoids glibc's allocator because the daemon allocates from several
+threads at once and frees across them; C/C++ code (`ggml`, glibc itself) still goes
+through glibc's `malloc`.
+
 ### Libraries loaded on demand (`dlopen`)
 
 Not link-time dependencies, but the windowing stack resolves them at runtime. Measured
@@ -110,7 +116,7 @@ spoken over the session socket), a clipboard manager, or on-screen notification 
 | Dependency | Why it is needed |
 | --- | --- |
 | Rust 1.98+ (edition 2024) | the project itself |
-| C++ toolchain (`base-devel`: gcc, make) and `pkgconf` | transcribe.cpp is compiled through CMake; `alsa-sys` probes ALSA with `pkg-config` |
+| C++ toolchain (`base-devel`: gcc, make) and `pkgconf` | transcribe.cpp is compiled through CMake; the `mimalloc` crate builds its C sources with `cc`; `alsa-sys` probes ALSA with `pkg-config` |
 | `cmake` (>= 3.16) | the engine's build system (ggml) |
 | `vulkan-headers`, `spirv-headers` and `vulkan-icd-loader` | ggml's Vulkan backend requires `find_package(Vulkan COMPONENTS glslc REQUIRED)` and `find_package(SPIRV-Headers CONFIG REQUIRED)`, and **links** `libvulkan.so` — that loader stub comes from `vulkan-icd-loader`, not from the headers package |
 | `shaderc` (provides `glslc`) and `glslang` (provides `glslangValidator`) | compile and validate the Vulkan compute shaders; `shaderc` depends on `glslang`, so installing it is enough |
@@ -206,8 +212,10 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   layer-shell) it is a non-activating, notification-typed X11 window — GNOME itself
   is the only target without the layer protocol, and GNOME 48+ binds the hotkey
   through the compositor's own shortcut portal.
-- The final transcript stays on the clipboard after insertion (no clipboard
-  restoration), so `Ctrl+V` always works manually. The selection is owned by an
+- A dictation does not eat the clipboard: auto-paste reads the text selection it is about to
+  displace and puts it back once the paste chord had its chance (a copy that arrives in between
+  wins; non-text selections are left to the transcript). In clipboard-only mode — no writing
+  injection device — the transcript itself stays on the clipboard. The selection is owned by an
   in-process wayland client that picks the first available mechanism —
   `zwlr_data_control_v1`, then `ext_data_control_v1` (both let a background client own
   the selection without keyboard focus), then an **X11 `CLIPBOARD` owner bridged by
