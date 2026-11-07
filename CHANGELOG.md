@@ -1,3 +1,9 @@
+## [1.0.4](https://github.com/RouHim/littera/compare/v1.0.3...v1.0.4) (2026-11-07)
+
+### Bug Fixes
+
+* declare the glibc floor and keep .SRCINFO in the AUR artifact ([78fb648](https://github.com/RouHim/littera/commit/78fb648f9676788a42499102daf4a3c9c4037184))
+
 ## [1.0.3](https://github.com/RouHim/littera/compare/v1.0.2...v1.0.3) (2026-11-07)
 
 ### Bug Fixes
