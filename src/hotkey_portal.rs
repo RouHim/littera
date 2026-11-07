@@ -27,13 +27,13 @@ use ashpd::zbus::{self, zvariant};
 
 use crate::hotkey::HotkeyEvent;
 
-/// Application-provided id of the single shortcut Lingua binds.
+/// Application-provided id of the single shortcut Littera binds.
 const SHORTCUT_ID: &str = "dictate";
 
-/// Lingua's application id: the stem of the shipped desktop entry
-/// (`assets/icon/lingua.desktop`), which is what the portal resolves the app
+/// Littera's application id: the stem of the shipped desktop entry
+/// (`assets/icon/littera.desktop`), which is what the portal resolves the app
 /// info — and its permission store — from.
-const APP_ID: &str = "lingua";
+const APP_ID: &str = "littera";
 
 /// Portal destination, object path, and the host-registry interface a host
 /// application registers its id with.
@@ -110,7 +110,7 @@ async fn connection() -> Result<zbus::Connection, PortalError> {
 /// Hand [`APP_ID`] to the host portal registry over `connection`.
 ///
 /// The portal resolves app info from an *installed desktop entry*, so the id
-/// is the entry's stem — `lingua.desktop` from `install-desktop.sh` — and a
+/// is the entry's stem — `littera.desktop` from `install-desktop.sh` — and a
 /// dotted application id is rejected as unknown. That spelling cannot travel
 /// through `ashpd::register_host_app` (its `AppID` demands a dotted name), so
 /// this call goes over `zbus` directly.

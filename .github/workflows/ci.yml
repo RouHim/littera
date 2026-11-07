@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: fmt, clippy, test
+    runs-on: ubuntu-24.04
+    # Same distribution as the AUR package builds on, so a dependency that
+    # stops compiling against Arch's toolchain fails here first.
+    container: archlinux:base-devel
+    steps:
+      - name: System dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          git cmake ninja vulkan-headers spirv-headers vulkan-icd-loader
+          shaderc glslang alsa-lib blas cblas rust rustfmt clippy
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-cargo-
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

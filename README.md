@@ -1,4 +1,4 @@
-# Lingua — local voice dictation for Linux/Wayland
+# Littera — local voice dictation for Linux/Wayland
 
 Press a global hotkey, speak, and the transcript lands at the cursor of the focused
 application. Speech recognition runs **fully in-process** (Nemotron 3.5 ASR streaming
@@ -8,6 +8,45 @@ speech runtime.
 
 Targets Wayland desktops: KDE Plasma, Hyprland (wlroots), COSMIC and GNOME — with
 explicit, user-visible handling of each compositor's capability gaps.
+
+## Installation
+
+**Arch Linux (AUR).** The AUR package ships the prebuilt release binary:
+
+```sh
+yay -S littera-bin            # or: paru -S littera-bin
+littera                       # first run: onboarding (model, language, key, system check)
+```
+
+The package is `littera-bin` on the [AUR](https://aur.archlinux.org/packages/littera-bin);
+`provides=('littera')`, so a later source package with that name can replace it. The
+binary is built for baseline x86-64 (`TRANSCRIBE_X86_CONSERVATIVE`), not for the
+release runner's CPU.
+
+**From source** (see [Build dependencies](#build-dependencies)):
+
+```sh
+cargo build --release
+./install-desktop.sh          # desktop entry + hicolor icons into the XDG data dirs
+./target/release/littera
+```
+
+`install-desktop.sh` is required for the hotkey portal path: the portal identifies a
+caller by its installed desktop entry, and without one it refuses the shortcut dialog.
+
+**Renamed from `lingua`.** Builds from before the 0.1.0 release used `lingua` for the
+binary, the config/data directories, the IPC socket and the desktop entry. Move the state
+once and re-install the entry:
+
+```sh
+mv ~/.config/lingua ~/.config/littera
+mv ~/.local/share/lingua ~/.local/share/littera
+rm -f ~/.local/share/applications/lingua.desktop
+./install-desktop.sh
+```
+
+The new desktop-entry stem (`littera`) is a new portal application id, so the compositor
+asks for the hotkey once more.
 
 ## Scope: Linux only, Wayland sessions only
 
@@ -26,7 +65,7 @@ and is not ported to macOS, Windows, BSD, or to an X11 session.
   `wl_data_device`; the hotkey picks the `GlobalShortcuts` portal, else the read-only
   evdev listener; auto-paste needs `/dev/uinput`, else the transcript is copied only.
   Every gap degrades to a documented fallback and is named in
-  `lingua --diagnostics` and in the app's startup problem notice.
+  `littera --diagnostics` and in the app's startup problem notice.
 - **No other platform glue**: no GTK/Qt shell (the GUI is iced), no
   `ydotool`/`xdotool`/`wtype`, no Python, no separately installed speech runtime, no
   cloud.
@@ -34,13 +73,13 @@ and is not ported to macOS, Windows, BSD, or to an X11 session.
 ## Runtime dependencies
 
 What the built binary needs on the machine. Everything below is checked by
-`lingua --diagnostics` (hotkey access, paste permission, GPU backend, overlay backend);
+`littera --diagnostics` (hotkey access, paste permission, GPU backend, overlay backend);
 the app opens a **problem notice** by itself whenever one of those checks fails — also
 when it otherwise starts without any window.
 
 ### Libraries the binary links directly
 
-`ldd target/release/lingua` on the reference machine prints exactly these:
+`ldd target/release/littera` on the reference machine prints exactly these:
 
 | Library | Package |
 | --- | --- |
@@ -61,7 +100,7 @@ through glibc's `malloc`.
 
 Not link-time dependencies, but the windowing stack resolves them at runtime. Measured
 as the remaining `lib*.so[.N]` literals inside the binary
-(`strings -a target/release/lingua | grep -oE 'lib[a-zA-Z0-9_+-]*\.so(\.[0-9]+)*'`):
+(`strings -a target/release/littera | grep -oE 'lib[a-zA-Z0-9_+-]*\.so(\.[0-9]+)*'`):
 
 | Library | Package | Loaded for |
 | --- | --- | --- |
@@ -86,7 +125,7 @@ code paths above only need the six libraries listed.
 | D-Bus session bus (`/run/user/<uid>/bus`) | tray icon and desktop portal | the tray is only logged as unavailable; the portal path falls back to the device listener |
 | StatusNotifier host (provided by the desktop shell) | tray icon (FR-017) | settings stay reachable by relaunching the binary |
 | `xdg-desktop-portal` exposing `GlobalShortcuts` | compositor-side hotkey binding | the listen-only device listener is used instead (FR-008) |
-| an installed desktop entry (`install-desktop.sh` puts `lingua.desktop` in `~/.local/share/applications`) | the portal can identify the application before it opens its shortcut dialog | the portal refuses the request (`NotAllowed: An app id is required`) and the listen-only key devices bind the recorded combination instead |
+| an installed desktop entry (`install-desktop.sh` puts `littera.desktop` in `~/.local/share/applications`) | the portal can identify the application before it opens its shortcut dialog | the portal refuses the request (`NotAllowed: An app id is required`) and the listen-only key devices bind the recorded combination instead |
 | logind `uaccess` ACL on `/dev/input/event*`, or membership in the `input` group | reading the hotkey | the system check prints `sudo usermod -aG input $USER` + re-login |
 | logind `uaccess` ACL on `/dev/uinput` | synthesizing the paste chord | clipboard-only mode; the overlay names the blocked path (FR-013) |
 | XWayland | GNOME overlay and the X11 clipboard bridge | no overlay on GNOME, no X11 clipboard fallback |
@@ -96,7 +135,7 @@ code paths above only need the six libraries listed.
 
 Permissions, concretely:
 
-1. **Hotkey listening.** Without a shortcut portal Lingua reads the keyboard devices
+1. **Hotkey listening.** Without a shortcut portal Littera reads the keyboard devices
    read-only and **never grabs them**:
    ```sh
    sudo usermod -aG input $USER   # then log out and back in
@@ -142,7 +181,7 @@ runtime needs a GL stack, `libglvnd` or `libwayland-egl`.
 
 ```sh
 cargo build --release
-./target/release/lingua          # first run: onboarding (model, language, key, check)
+./target/release/littera          # first run: onboarding (model, language, key, check)
 ```
 
 The model section lists every streaming ASR variant of the bundled `transcribe.cpp`
@@ -173,7 +212,7 @@ model becomes active immediately. The default is Nemotron 3.5 ASR Streaming 0.6B
 Q8_0 (751 MB) — multilingual, 32 locales; the list also offers the English-only
 variants (down to 50 MB) and Voxtral Mini 4B Realtime (4.73 GB).
 
-`lingua` runs as a single instance: launching it again forwards "open settings" to the
+`littera` runs as a single instance: launching it again forwards "open settings" to the
 running process and exits. A tray icon (StatusNotifierItem) shows the dictation state
 and offers *Open settings* / *Quit*; without a tray host, relaunching the binary opens
 the settings window.
@@ -181,8 +220,8 @@ the settings window.
 ### Command-line flags
 
 ```
-lingua --diagnostics
-lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
+littera --diagnostics
+littera --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 ```
 
 - `--diagnostics` prints the four system checks (`hotkey access`, `paste permission`,
@@ -234,7 +273,7 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   `/sys/bus/pci/devices`, the installed ICDs from `/usr/share/vulkan/icd.d`, the package
   manager from `PATH` — e.g. `sudo pacman -S vulkan-intel — no Vulkan ICD for the Intel
   GPU`), and dictation keeps working on the CPU.
-- Settings are stored in `~/.config/lingua/config.toml`; every change in the settings
+- Settings are stored in `~/.config/littera/config.toml`; every change in the settings
   window applies immediately (autosave — there is no Save button) and persists without a
   restart. The **Language** section is one pick list: `Auto-detect` (the default) first,
   then every language the bundled catalog can serve — and the model list's language
@@ -279,7 +318,7 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   itself at zero lookahead (`att_context_right = 0`); the overlay covers that window with
   an immediate `Listening… 0:00` state and a live input-level bar. Raising
   `att_context_right` would delay the first partial further, not earlier.
-- **Terminals** often paste with `Ctrl+Shift+V`; Lingua always sends `Ctrl+V`, so the
+- **Terminals** often paste with `Ctrl+Shift+V`; Littera always sends `Ctrl+V`, so the
   clipboard path is the workaround.
 - **Microphone pinning under PipeWire**: the entries in the Microphone section follow the
   ALSA device layer, so the PipeWire plugins (`alsa:default`, `alsa:pipewire`) record from
@@ -289,7 +328,7 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 - A **listen-only device listener cannot suppress desktop bindings**, so a chord like
   the default `Ctrl+Super` may additionally trigger a desktop action. Pick a chord your
   desktop does not use, or use a compositor with the shortcut portal (KDE, GNOME 48+,
-  Hyprland), where Lingua binds through the compositor and nothing is read from the
+  Hyprland), where Littera binds through the compositor and nothing is read from the
   input devices.
 - The **`Bind…` button in the Hotkey section asks for the combination**: press it in the
   window and it is bound. The mechanism still follows the desktop's capability — the
@@ -299,7 +338,7 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
   own store without asking anyone; that answer never replaces the recorded combination,
   the card names it, and the key devices serve the chord you pressed. If the portal never
   opens a dialog at all, it cannot identify the process — run `./install-desktop.sh`
-  once and restart Lingua.
+  once and restart Littera.
 - **Fractional scaling**: the layer-shell overlay rounds the fractional output scale to
   the nearest integer (Wayland's `wp_fractional_scale_v1` is not implemented yet).
 - GNOME's non-activating X11 overlay is covered by this repository's smoke test
@@ -324,27 +363,61 @@ lingua --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 
 - `assets/Inter-Regular.ttf` — Inter, SIL Open Font License 1.1 (see
   `assets/Inter-LICENSE.txt`), embedded into the binary and used for the overlay text.
-- `assets/icon/hicolor/scalable/apps/lingua.svg` — the icon master: the tile in the
+- `assets/icon/hicolor/scalable/apps/littera.svg` — the icon master: the tile in the
   palette's accent colour with the motif in the on-accent ink, derived from the SVG Repo
   artwork *speech-right*. Every raster is rendered from this one file with
   `rsvg-convert`, so the project gains no build-time rasterizer:
 
   ```sh
   for n in 16 24 32 48 64 128 256; do
-    rsvg-convert -w $n -h $n assets/icon/hicolor/scalable/apps/lingua.svg \
-      -o assets/icon/hicolor/${n}x${n}/apps/lingua.png
+    rsvg-convert -w $n -h $n assets/icon/hicolor/scalable/apps/littera.svg \
+      -o assets/icon/hicolor/${n}x${n}/apps/littera.png
   done
   ```
-- `assets/icon/hicolor/<size>/apps/lingua.png` — the 8-bit RGBA set at 16, 24, 32, 48,
+- `assets/icon/hicolor/<size>/apps/littera.png` — the 8-bit RGBA set at 16, 24, 32, 48,
   64, 128 and 256 px plus the scalable SVG, in the freedesktop hicolor layout under the
-  single lowercase name `lingua`.
-- `assets/icon/hicolor/256x256/apps/lingua.png` — the same file the binary embeds as
+  single lowercase name `littera`.
+- `assets/icon/hicolor/256x256/apps/littera.png` — the same file the binary embeds as
   its tray pixmap and window icon; a decode failure only logs a warning and the daemon
   keeps running.
-- `assets/icon/lingua.desktop` and `./install-desktop.sh` — the desktop entry
-  (`Icon=lingua`, `StartupWMClass=lingua`) and the one command that copies it plus the
+- `assets/icon/littera.desktop` and `./install-desktop.sh` — the desktop entry
+  (`Icon=littera`, `StartupWMClass=littera`) and the one command that copies it plus the
   icon set into `${XDG_DATA_HOME:-~/.local/share}`; it rewrites `Exec` to this
-  checkout's `target/release/lingua`, needs no root and is safe to re-run.
+  checkout's `target/release/littera`, needs no root and is safe to re-run.
+
+## Releases and AUR packaging
+
+The repository publishes itself; there is no manual tagging step.
+
+- **Versioning** — pull requests are squash-merged with a
+  [Conventional Commit](https://www.conventionalcommits.org/) title (`feat:`, `fix:`,
+  `perf:`, …); `.github/workflows/pr-title.yml` rejects anything else.
+  [semantic-release](https://semantic-release.gitbook.io/) reads the merged titles on
+  `main`, writes `CHANGELOG.md`, bumps `Cargo.toml` and `Cargo.lock` through
+  `scripts/bump-version.sh`, commits that as `chore(release): X.Y.Z [skip ci]` and tags
+  `vX.Y.Z`. A `fix`/`feat`/`perf` type produces a release; `chore`/`ci`/`docs` do not.
+- **Build** (`release.yml`, job `build`) — runs in an `archlinux:base-devel` container,
+  builds with `TRANSCRIBE_CMAKE_ARGS=-DTRANSCRIBE_X86_CONSERVATIVE=ON` (no `-march=native`,
+  no per-tier x86 flags), strips the binary, and uploads two release assets:
+  `littera-X.Y.Z-x86_64.tar.gz` (binary, desktop entry, hicolor icons, `LICENSE`) and its
+  `.sha256`.
+- **AUR** (`release.yml`, job `aur`) — renders `packaging/PKGBUILD` with the version and
+  the archive checksum, regenerates `.SRCINFO` with `makepkg --printsrcinfo`, and pushes
+  to `ssh://aur@aur.archlinux.org/littera-bin.git`. It authenticates with the repository
+  secret `AUR_SSH_KEY` (a passphrase-less ed25519 key whose public half is registered in
+  the AUR account) and the repository variables `AUR_USERNAME` and `AUR_MAINTAINER_EMAIL`;
+  the AUR host key is pinned in `.github/aur_known_hosts`.
+- **First submission is manual** — the AUR creates packages through its web form, not
+  through a push. Submit `packaging/PKGBUILD` once at
+  <https://aur.archlinux.org/submit>; the job then detects the missing remote, fails with
+  that instruction, and succeeds on its next run.
+- **Why the package is a binary package and why it is not statically linked** — a fully
+  static binary cannot carry this product: the Vulkan loader (`libvulkan.so.1`) is a
+  shared object that `dlopen`s the ICD, `libwayland-client`, `libxkbcommon`, `libX11`,
+  `libXi` and `libxcb` are resolved at runtime, and ALSA loads its PCM plugins with
+  `dlopen`. A static musl build would fail at the first of those. The package therefore
+  declares the dynamic dependencies Arch already provides (`alsa-lib`,
+  `vulkan-icd-loader`, `blas`, `cblas`).
 
 ## Verification quick reference
 
@@ -359,5 +432,11 @@ cargo test
 cargo test -- --ignored                # overlay window-property smoke tests (needs a display server)
 cargo run --release -- --diagnostics
 cargo run --release -- --audio-file samples/jfk.wav --print-transcript --latency
-LINGUA_OVERLAY=x11 cargo run --release   # exercise the GNOME overlay path locally
+LITTERA_OVERLAY=x11 cargo run --release   # exercise the GNOME overlay path locally
 ```
+
+## License
+
+MIT — see [`LICENSE`](LICENSE). The bundled fonts carry their own licenses
+(`assets/Inter-LICENSE.txt`, `assets/BarlowCondensed-LICENSE.txt`); the speech model is
+downloaded separately at first use and is governed by the terms of its distribution.

@@ -13,6 +13,9 @@
 
 # Cargo.lock is tracked on purpose: binary crate, pinned dependency graph.
 
+# semantic-release tooling (package-lock.json stays tracked for `npm ci`).
+/node_modules
+
 # Impeccable engine binary: platform-specific (linux-x64, ~21 MB) and
 # re-downloaded by the launcher on first run — never committed.
 .agents/skills/impeccable/scripts/bin/

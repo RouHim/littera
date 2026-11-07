@@ -1,9 +1,12 @@
 [package]
-name = "lingua"
+name = "littera"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 publish = false
+description = "Local voice dictation for Linux/Wayland"
+license = "MIT"
+repository = "https://github.com/RouHim/littera"
 
 [dependencies]
 # Process-wide Rust allocator (see the `#[global_allocator]` in src/main.rs); compiled and

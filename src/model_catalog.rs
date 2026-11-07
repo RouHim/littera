@@ -1593,7 +1593,7 @@ mod tests {
         );
         assert_eq!(default_selection().artifact.id, DEFAULT_ARTIFACT_ID);
         assert_eq!(
-            selection_for_file_name("not-a-lingua-model.gguf"),
+            selection_for_file_name("not-a-littera-model.gguf"),
             None,
             "a foreign file never resolves"
         );

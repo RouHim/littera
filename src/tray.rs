@@ -21,12 +21,12 @@ impl TrayState {
 }
 
 /// The tray item itself.
-pub struct LinguaTray {
+pub struct LitteraTray {
     state: String,
     events: UnboundedSender<AppEvent>,
 }
 
-impl LinguaTray {
+impl LitteraTray {
     fn new(events: UnboundedSender<AppEvent>) -> Self {
         Self {
             state: "Idle".to_owned(),
@@ -35,20 +35,20 @@ impl LinguaTray {
     }
 }
 
-impl ksni::Tray for LinguaTray {
+impl ksni::Tray for LitteraTray {
     fn id(&self) -> String {
         crate::config::APP_ID.to_owned()
     }
 
     fn title(&self) -> String {
-        "Lingua".to_owned()
+        "Littera".to_owned()
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
         ksni::ToolTip {
             icon_name: crate::config::APP_ID.to_owned(),
             icon_pixmap: self.icon_pixmap(),
-            title: "Lingua".to_owned(),
+            title: "Littera".to_owned(),
             description: format!("Dictation: {}", self.state),
         }
     }
@@ -89,7 +89,7 @@ impl ksni::Tray for LinguaTray {
 /// `None` when no StatusNotifier host answers: the application carries on
 /// without a tray icon (FR-017, Scenario 3.3).
 pub async fn spawn(events: UnboundedSender<AppEvent>) -> Option<TrayState> {
-    let handle = match LinguaTray::new(events).spawn().await {
+    let handle = match LitteraTray::new(events).spawn().await {
         Ok(handle) => handle,
         Err(error) => {
             tracing::warn!(%error, "no tray host available; settings stay reachable by relaunching");

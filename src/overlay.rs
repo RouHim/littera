@@ -77,7 +77,7 @@ pub enum OverlayBackend {
 }
 
 /// Environment override for the backend probe: `layer` or `x11`.
-pub const OVERRIDE_ENV: &str = "LINGUA_OVERLAY";
+pub const OVERRIDE_ENV: &str = "LITTERA_OVERLAY";
 
 /// The layer-shell interface name looked up in the Wayland registry (pinned by a test).
 #[cfg(test)]
@@ -157,7 +157,7 @@ fn base_reason(backend: OverlayBackend) -> &'static str {
     }
 }
 
-/// Parse a `LINGUA_OVERLAY` value. Unknown values leave the probe in charge.
+/// Parse a `LITTERA_OVERLAY` value. Unknown values leave the probe in charge.
 fn override_backend(raw: &str) -> Option<OverlayBackend> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "layer" => Some(OverlayBackend::Layer),

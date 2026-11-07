@@ -1,5 +1,5 @@
 ---
-name: Lingua
+name: Littera
 description: Local voice dictation for Linux/Wayland — an instrument that states its own truth.
 colors:
   enamel: "#22282E"
@@ -89,13 +89,13 @@ components:
     height: "112px"
 ---
 
-# Design System: Lingua
+# Design System: Littera
 
 ## Overview
 
 **Creative North Star: "The Nameplate"**
 
-Lingua's windows are the machine talking about itself. The Settings screen opens on a
+Littera's windows are the machine talking about itself. The Settings screen opens on a
 single stamped plate — model, backend, device, hotkey, one state lamp each — and then
 disciplined rows of field facts below it. Legends are condensed and capitalised as if
 silk-screened onto enamelled steel; values are set plainly; identifiers, paths and
@@ -155,7 +155,7 @@ The palette is a single dark steel family plus three signal inks; colour is neve
 **Character:** The condensed legend face does the talking — short, tracked, always upper-case, like silk-screen stencils on equipment; Inter carries sentences and values at a working size. The pairing reads as a machine label next to a printed field, never as a document.
 
 ### Hierarchy
-- **Title/legend** (600, 24px, 1.2): surface titles ("SET UP LINGUA"), upper-case.
+- **Title/legend** (600, 24px, 1.2): surface titles ("SET UP LITTERA"), upper-case.
 - **Legend** (600, 18px, 1.2): section headings ("MODEL", "HOTKEY"), upper-case.
 - **Key** (600, 15px): field keys and state captions ("BACKEND", "NOT DOWNLOADED"), upper-case, muted unless toned.
 - **Body** (400, 17px): values, ledes, placard text; sentence case.

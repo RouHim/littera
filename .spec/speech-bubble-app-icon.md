@@ -2,11 +2,11 @@
 
 **Created**: 2026-10-16
 **Status**: Approved
-**Input**: Build a proper app icon for Lingua from the provided speech-right SVG (speech bubble + sound waves).
+**Input**: Build a proper app icon for Littera from the provided speech-right SVG (speech bubble + sound waves).
 
 ## Goal
 
-Lingua currently ships one 64×64 PNG tile icon as its only visual identity. This feature replaces it with a proper app icon derived from the supplied source artwork: one committed master, one app-styled visual language, one icon set that stays legible everywhere the app appears — tray, dock, window/taskbar and app menus — from 16 px up to 256 px. The icon also becomes resolvable by name through the freedesktop icon-theme mechanism, so launchers show it outside the running window after a documented user-local install step. Runtime behaviour is unchanged: all runtime assets stay embedded in the binary and degrade to "no icon" instead of failing.
+Littera currently ships one 64×64 PNG tile icon as its only visual identity. This feature replaces it with a proper app icon derived from the supplied source artwork: one committed master, one app-styled visual language, one icon set that stays legible everywhere the app appears — tray, dock, window/taskbar and app menus — from 16 px up to 256 px. The icon also becomes resolvable by name through the freedesktop icon-theme mechanism, so launchers show it outside the running window after a documented user-local install step. Runtime behaviour is unchanged: all runtime assets stay embedded in the binary and degrade to "no icon" instead of failing.
 
 ## User Scenarios
 

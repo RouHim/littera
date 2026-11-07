@@ -1,6 +1,6 @@
 //! Single-instance IPC over an XDG runtime-directory socket (FR-015).
 //!
-//! The running instance listens on `$XDG_RUNTIME_DIR/lingua/ipc.sock`; a second
+//! The running instance listens on `$XDG_RUNTIME_DIR/littera/ipc.sock`; a second
 //! launch connects, sends one request line, and exits with status 0.
 
 use std::io::{ErrorKind, Write};
@@ -41,12 +41,12 @@ impl Request {
     }
 }
 
-/// `$XDG_RUNTIME_DIR/lingua/ipc.sock`.
+/// `$XDG_RUNTIME_DIR/littera/ipc.sock`.
 pub fn socket_path() -> Result<PathBuf> {
     let runtime = std::env::var_os("XDG_RUNTIME_DIR").context(
         "cannot determine the XDG runtime directory ($XDG_RUNTIME_DIR unset — is this a Wayland session?)",
     )?;
-    Ok(PathBuf::from(runtime).join("lingua").join("ipc.sock"))
+    Ok(PathBuf::from(runtime).join("littera").join("ipc.sock"))
 }
 
 /// Tell a running instance about `request`.

@@ -460,7 +460,7 @@ pub fn start(tx: Sender<Chunk>, device: Option<&str>) -> Result<Capture> {
     let (control_tx, control_rx) = std::sync::mpsc::channel::<CaptureMsg>();
     let (ready_tx, ready_rx) = std::sync::mpsc::channel::<StartupReport>();
     let builder = std::thread::Builder::new();
-    let builder = builder.name("lingua-capture".to_owned());
+    let builder = builder.name("littera-capture".to_owned());
     // The stream callbacks send through their own handle; `Capture` keeps the other one.
     let callback_tx = control_tx.clone();
     let selection = device.map(str::to_owned);
@@ -914,7 +914,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         let id = std::process::id();
-        std::env::temp_dir().join(format!("lingua-audio-{id}-{name}"))
+        std::env::temp_dir().join(format!("littera-audio-{id}-{name}"))
     }
 
     /// Write a WAV file with a canonical 16-byte `fmt ` chunk and a single `data` chunk.

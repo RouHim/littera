@@ -1,12 +1,12 @@
-<!-- Lingua app icon master. Derived from the SVG Repo artwork "speech-right"
+<!-- Littera app icon master. Derived from the SVG Repo artwork "speech-right"
      (speech-right-svgrepo-com.svg): both mark paths are reused verbatim and only
      re-coloured and re-framed. Colours: palette::ACCENT tile, palette::ON_ACCENT
      motif. Geometry: 1024 canvas, corner radius 228, motif scaled to 64% of the
      canvas width, bounding box centred at (512, 512) and nudged +20 px down.
      Regenerate the PNG set from this file:
        for n in 16 24 32 48 64 128 256; do
-         rsvg-convert -w $n -h $n assets/icon/hicolor/scalable/apps/lingua.svg \
-           -o assets/icon/hicolor/${n}x${n}/apps/lingua.png
+         rsvg-convert -w $n -h $n assets/icon/hicolor/scalable/apps/littera.svg \
+           -o assets/icon/hicolor/${n}x${n}/apps/littera.png
        done -->
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <rect width="1024" height="1024" rx="228" fill="#E3B23C"/>

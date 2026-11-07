@@ -1,4 +1,4 @@
-# Feature Specification: Lingua — Local Voice Dictation for Linux/Wayland (MVP)
+# Feature Specification: Littera — Local Voice Dictation for Linux/Wayland (MVP)
 
 **Created**: 2026-10-15
 **Status**: Approved
@@ -88,7 +88,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-019**: User-visible failures MUST be actionable text naming cause and remedy, never silent. Internal logging MUST use `tracing` with contextual spans instead of `println!`.
 - **FR-020**: Non-test code MUST NOT use `unwrap`/`expect`. HTTPS downloads MUST use rustls. Static UI assets (fonts, icons) MUST be embedded in the binary, and the repository MUST pass `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`.
 - **FR-021**: The source MUST be organized as flat, single-responsibility Rust files declared at the crate root, without nested module trees; engine, hotkey source, text inserter, and overlay presentation MUST sit behind narrow interfaces so each can be replaced or tested independently.
-- **FR-022**: `lingua --diagnostics` MUST expose the effective backend, device, model, language and hotkey mechanism with their fallback states in one output, so support questions can be answered without reading logs.
+- **FR-022**: `littera --diagnostics` MUST expose the effective backend, device, model, language and hotkey mechanism with their fallback states in one output, so support questions can be answered without reading logs.
 
 ## Key Entities
 
@@ -135,7 +135,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 
 ## Assumptions
 
-- The application is named after its repository, "Lingua"; its user interface is English-only for the MVP.
+- The application is named after its repository, "Littera"; its user interface is English-only for the MVP.
 - The reference machine for latency and success criteria is the developer machine: COSMIC 1.9.0 on Wayland, AMD Radeon RX 6950 XT with the Mesa RADV Vulkan driver, PipeWire audio.
 - Engine integration is assumed to be the in-process, statically linked Rust bindings route; the alternatives are documented above and the final choice is confirmed during planning.
 - The default model is the multilingual Q8_0 variant; the default language is `auto`.

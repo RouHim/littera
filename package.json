@@ -1,0 +1,14 @@
+{
+  "name": "littera-release",
+  "private": true,
+  "description": "Release tooling only: semantic-release, run by .github/workflows/release.yml. Not part of the shipped binary.",
+  "devDependencies": {
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/commit-analyzer": "^13.0.1",
+    "@semantic-release/exec": "^7.1.0",
+    "@semantic-release/git": "^11.0.1",
+    "@semantic-release/github": "^12.0.10",
+    "@semantic-release/release-notes-generator": "^14.1.1",
+    "semantic-release": "^25.0.9"
+  }
+}

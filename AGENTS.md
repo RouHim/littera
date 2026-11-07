@@ -2,9 +2,9 @@
 
 ## Project Overview
 
-**Lingua** — local voice dictation for Linux/Wayland. Global hotkey → speak → the transcript is inserted at the cursor of the focused application. ASR runs **fully in-process** (`transcribe-cpp` 0.4 → vendored transcribe.cpp/ggml, Vulkan with CPU fallback); no cloud, no account, no separately installed speech runtime.
+**Littera** — local voice dictation for Linux/Wayland. Global hotkey → speak → the transcript is inserted at the cursor of the focused application. ASR runs **fully in-process** (`transcribe-cpp` 0.4 → vendored transcribe.cpp/ggml, Vulkan with CPU fallback); no cloud, no account, no separately installed speech runtime.
 
-- Single **binary** crate: `name = "lingua"`, `edition = "2024"`, `rust-version = "1.98"`, `publish = false`. No `src/lib.rs`, no `[[bin]]`/`[lib]`, no `[workspace]`, no `[features]`, no `[dev-dependencies]`, no `[lints]`.
+- Single **binary** crate: `name = "littera"`, `edition = "2024"`, `rust-version = "1.98"`, `publish = false`. No `src/lib.rs`, no `[[bin]]`/`[lib]`, no `[workspace]`, no `[features]`, no `[dev-dependencies]`, no `[lints]`.
 - **The spec is the requirements source of truth**: `.spec/wayland-voice-dictation.md` (`FR-001…FR-022`, `SC-001…SC-010`, user Scenarios). Source and tests cite those ids (e.g. `FR-013` in `src/inserter.rs:7`, `FR-018` in `src/audio.rs:864`). Keep the ids accurate when you change behavior; a test that pins a spec literal is intentional, not redundant.
 - **Platform scope: Linux + a Wayland session, nothing else — do not widen it.** The
   target is a Wayland compositor on a Linux desktop (COSMIC, KDE Plasma,
@@ -20,7 +20,7 @@
   X11-only code path that is not a fallback, or a non-Linux code path.
 - Out of scope by spec: cloud/BYOK models, transcript history, custom dictionaries,
   meeting transcription, accounts, macOS/Windows.
-- Repo state: branch `main` carries a single initial commit, `origin` = `github.com/RouHim/lingua` (**private**), no CI, no packaging. Exactly one root script (`install-desktop.sh`, the user-local desktop-entry/icon installer) and one shipped desktop entry (`assets/icon/lingua.desktop`) exist. Do not assume history or automation exists.
+- Repo state: branch `main`, `origin` = `github.com/RouHim/littera`, and the repo releases itself: `.github/workflows/{ci,release,pr-title}.yml`, semantic-release (`.releaserc.json`, `package.json`), `renovate.json`, the AUR packaging in `packaging/` and the version bumper `scripts/bump-version.sh`. `install-desktop.sh` is the user-local desktop-entry/icon installer; the shipped desktop entry is `assets/icon/littera.desktop`. No tag or release exists until a `feat`/`fix`/`perf` commit lands on `main`.
 
 ## Architecture & Data Flow
 
@@ -43,7 +43,7 @@ Key structural rules:
 - **Blocking native work runs on dedicated `std::thread`s with `std::sync::mpsc`; tokio exists only where async is inherent** (ashpd portals, the `ureq` model download, `tokio::net` IPC, `ksni`, iced tasks). `src/engine.rs:12-13`: "Nothing here runs on a tokio task." `src/models.rs` states the project rule that blocking work never occupies a tokio worker.
 - One process-wide inbound channel: `static EVENT_CHANNEL: OnceLock<…>` (`src/app.rs:85`) fed by pump threads, tray and IPC, drained by the iced subscription `Subscription::run(event_stream)` (`src/app.rs:1400`). Every producer goes through `AppEvent`.
 - iced owns the tokio multi-thread runtime (`iced::daemon(…).run()` in `run_daemon`, `src/main.rs:287`); the app never builds one, except in the two verification CLI paths that run without iced (`src/main.rs:119`, `:156`).
-- Single instance: `ipc::notify_running_instance(OpenSettings)` at daemon start forwards "open settings" to `$XDG_RUNTIME_DIR/lingua/ipc.sock` and exits 0.
+- Single instance: `ipc::notify_running_instance(OpenSettings)` at daemon start forwards "open settings" to `$XDG_RUNTIME_DIR/littera/ipc.sock` and exits 0.
 
 ## Key Directories
 
@@ -52,29 +52,36 @@ Key structural rules:
 | `src/` | Entire application, flat: one responsibility per file (see Important Files) |
 | `.spec/` | `wayland-voice-dictation.md` — approved spec with FR/SC ids; the only requirements doc |
 | `PRODUCT.md` / `DESIGN.md` / `.impeccable/` | Design context (Impeccable): product truth in `PRODUCT.md` (schema-tagged), the visual system in `DESIGN.md` (token frontmatter + the `.impeccable/design.json` sidecar), the chosen direction contract in `.impeccable/surfaces/*.md`; ephemeral decision/round state under `.impeccable/mocks/` and `.impeccable/review/` is gitignored. The skill itself is vendored at `.agents/skills/impeccable/` (omp loads it project-scoped; the engine binary under its `scripts/bin/` is gitignored and re-downloaded) |
-| `assets/` | `icon/` — the master `hicolor/scalable/apps/lingua.svg`, its seven `hicolor/<N>x<N>/apps/lingua.png` renders (`rsvg-convert`, no build-time rasterizer) and `lingua.desktop`; the 256 px render is `include_bytes!`-embedded as `ui::ICON_PNG` (tray pixmap + window icon). Fonts `Inter-Regular.ttf`, `BarlowCondensed-*.ttf` + OFL licenses |
+| `assets/` | `icon/` — the master `hicolor/scalable/apps/littera.svg`, its seven `hicolor/<N>x<N>/apps/littera.png` renders (`rsvg-convert`, no build-time rasterizer) and `littera.desktop`; the 256 px render is `include_bytes!`-embedded as `ui::ICON_PNG` (tray pixmap + window icon). Fonts `Inter-Regular.ttf`, `BarlowCondensed-*.ttf` + OFL licenses |
 | `samples/` | `jfk.wav`, 11 s 16 kHz mono PCM fixture for the `--audio-file` path (not read by any `#[test]`) |
+| `.github/` | CI and release automation: `ci.yml` (fmt/clippy/test in an `archlinux:base-devel` container), `release.yml` (semantic-release → build → AUR push), `pr-title.yml` (Conventional PR titles), `aur_known_hosts` (pinned AUR host keys) |
+| `packaging/` | AUR `PKGBUILD` template + `littera-bin.install`, rendered by `release.yml`; the package installs the prebuilt release tarball, not a source build |
+| `scripts/` | `bump-version.sh`, the semantic-release prepare step that rewrites `Cargo.toml`/`Cargo.lock` |
 | `target/` | Build output, gitignored (`.gitignore`: `/target` + Rust backup/editor/OS noise); contains the CMake trees of `transcribe-cpp-sys` |
 
-Absent on purpose: `tests/`, `benches/`, `examples/`, `scripts/`, `Makefile`/`justfile`, `.github/`, `docs/`, `CONTRIBUTING`/`CHANGELOG`, `rustfmt.toml`/`clippy.toml`/`.editorconfig`, `rust-toolchain.toml`/`.cargo/config.toml`.
+Absent on purpose: `tests/`, `benches/`, `examples/`, `Makefile`/`justfile`, `docs/`, `CONTRIBUTING`, `rustfmt.toml`/`clippy.toml`/`.editorconfig`, `rust-toolchain.toml`/`.cargo/config.toml`. `CHANGELOG.md` is generated by semantic-release, not maintained by hand; `package.json` exists only for the release tooling.
 
 ## Development Commands
 
 ```sh
 # System deps (Arch; required before the first build)
-sudo pacman -S --needed base-devel cmake vulkan-headers spirv-headers shaderc alsa-lib blas cblas
+sudo pacman -S --needed base-devel cmake vulkan-headers spirv-headers vulkan-icd-loader shaderc alsa-lib blas cblas
 
 cargo build --release            # slow: CMake builds transcribe.cpp + ggml (CPU + Vulkan), ~200 .comp shaders
-./target/release/lingua          # first run: onboarding (model, language, key, system check)
+./target/release/littera          # first run: onboarding (model, language, key, system check)
 
-# Verification quick reference (README.md:237-251)
+# Release tooling (a push to main runs this on GitHub; locally it is a preview)
+npx semantic-release --dry-run   # next version from the merged PR titles, no tag
+./scripts/bump-version.sh 0.2.0  # exactly what semantic-release's prepare step runs
+
+# Verification quick reference (README.md, "Verification quick reference")
 cargo fmt --check
 cargo clippy --all-targets -- -D warnings
 cargo test
 cargo test -- --ignored                       # overlay window-property smoke tests (they self-skip without a display)
 cargo run --release -- --diagnostics
 cargo run --release -- --audio-file samples/jfk.wav --print-transcript --latency
-LINGUA_OVERLAY=x11 cargo run --release        # exercise the GNOME/XWayland overlay path locally
+LITTERA_OVERLAY=x11 cargo run --release        # exercise the GNOME/XWayland overlay path locally
 ```
 
 The spec words the lint gate as `cargo clippy -- -D warnings` (FR-020/SC-008); the README form with `--all-targets` is the stricter one. Run the README form.
@@ -103,7 +110,7 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 - One stream at a time holds the model lease (`StreamLease::open` in `src/stream_lease.rs` retries `Busy` 5×20 ms); audio is routed via `audio_owner` (`src/engine.rs:380`).
 - `MIN_HOLD = 300 ms` (tap vs hold-to-talk), 5-minute cap, 100 ms partial throttle, `PASTE_CHORD_HOLD = 25 ms`, 2 s clipboard confirm timeout — all pinned by tests.
 - The only `unsafe` in the tree is `src/stream_lease.rs` (two blocks: `&'static mut Session` plus `mem::transmute` to `Stream<'static>`). It is safe for three reasons that live *only* in that module: `session` is a `Box` (stable address), `_session` is declared after `stream` (drop order), and both fields are private, so nothing outside can touch the session while the stream is alive. Keep it that way — do not unbox the session, reorder the fields, expose an accessor, or open a stream anywhere else.
-- The portal path needs an identity: `hotkey_portal` registers the shipped desktop entry's stem (`lingua`) with `org.freedesktop.host.portal.Registry` on the very connection the `GlobalShortcuts` calls use, because a caller the portal cannot identify is refused with `NotAllowed: An app id is required` and never gets a dialog. `ashpd::register_host_app` cannot express that id (its `AppID` demands a dotted name while the portal resolves app info from the installed desktop file), so the registration is a direct `zbus` call — and `install-desktop.sh` must have run, or the portal probe reports the capability as unavailable. A portal binding counts only when it reports the combination that was asked for (`portal_honoured`): the portal answers from its own per-application store once it holds a shortcut, and that chord must never replace what the user just recorded — the device listener serves the recorded combination instead, with the reason on the card.
+- The portal path needs an identity: `hotkey_portal` registers the shipped desktop entry's stem (`littera`) with `org.freedesktop.host.portal.Registry` on the very connection the `GlobalShortcuts` calls use, because a caller the portal cannot identify is refused with `NotAllowed: An app id is required` and never gets a dialog. `ashpd::register_host_app` cannot express that id (its `AppID` demands a dotted name while the portal resolves app info from the installed desktop file), so the registration is a direct `zbus` call — and `install-desktop.sh` must have run, or the portal probe reports the capability as unavailable. A portal binding counts only when it reports the combination that was asked for (`portal_honoured`): the portal answers from its own per-application store once it holds a shortcut, and that chord must never replace what the user just recorded — the device listener serves the recorded combination instead, with the reason on the card.
 - X11 overlay properties must be set **before the first `map_window`** (`src/overlay_x11.rs:1-23`).
 - The engine's language hint must be spelled exactly as the loaded GGUF advertises the language (the C API refuses anything else, in `transcribe_run` *and* `transcribe_stream_begin`): `model_catalog::language_hint` picks an advertised spelling of the configured language — the locale for Nemotron 3.5 (`de-DE`), the bare code for Voxtral and the English-only variants (`de` → `de`) — and `None` for a language the variant does not advertise (warn, run without a hint — FR-011). Never invent a hint spelling. The configured vocabulary is `config::Language`'s table (one locale per language the catalog can serve, `auto` first), which the onboarding pick list, the settings pick list and the model-list filter all share.
 - The Parakeet stream extension is attached only after probing `Model::accepts_ext(ExtSlot::Stream, TRANSCRIBE_EXT_KIND_PARAKEET_STREAM)` (`stream_extension`, `src/engine.rs`): the kind is a per-variant property (cache-aware vs chunked-attention vs neither), and an unaccepted kind fails `transcribe_stream_begin`. A variant that accepts the kind but refuses the requested lookahead falls back to its own default instead of losing the dictation.
@@ -119,7 +126,7 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 | `src/audio.rs` | cpal capture thread, downmix + `rubato` resample to 16 kHz mono, `Chunk`, WAV reader for `--audio-file` |
 | `src/hotkey.rs` | Chord parse/normalise (`parse_chord`, `Chord`, `BindError`), mechanism selection (`portal` first, device fallback) |
 | `src/hotkey_device.rs` | evdev listen-only listener: thread per keyboard, `ChordState`, hotplug supervisor |
-| `src/hotkey_portal.rs` | `ashpd` GlobalShortcuts portal binding; registers the app id (`lingua`, the desktop entry's stem) with the portal registry over `zbus` |
+| `src/hotkey_portal.rs` | `ashpd` GlobalShortcuts portal binding; registers the app id (`littera`, the desktop entry's stem) with the portal registry over `zbus` |
 | `src/clipboard.rs` | In-process selection ownership: `zwlr_data_control_v1` → `ext_data_control_v1` → X11 `CLIPBOARD` (XWayland bridge) → core `wl_data_device`; one thread each via `calloop`; `snapshot`/`restore` read the displaced selection back (FR-012) |
 | `src/inserter.rs` | `TextInserter` trait, `UinputInserter` (Ctrl+V via `/dev/uinput`), `ClipboardOnlyInserter` fallback, `InsertOutcome` |
 | `src/overlay.rs` / `overlay_render.rs` / `overlay_wayland.rs` / `overlay_x11.rs` | Presenter trait + backend probe/override; shared tiny-skia/cosmic-text frame render; layer-shell thread; X11 notification window thread |
@@ -129,22 +136,28 @@ CLI surface is exactly `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV> [--p
 | `src/models.rs` | `path_for`, resumable verified `ensure` (`<file>.part` + `Range` + SHA-256 + free-space gate) for a `model_catalog::Artifact` |
 | `src/ipc.rs` / `tray.rs` / `diagnostics.rs` / `vulkan_icd.rs` / `logging.rs` | Single-instance socket + JSON-line codec; ksni tray; the four system checks; the missing-Vulkan-driver advice a failed GPU check shows (`/sys/bus/pci/devices` + `/usr/share/vulkan/icd.d` + the package manager on `PATH`, no distro assumed); `tracing-subscriber` init |
 | `build.rs` | Emits `-lcblas` when a `cblas.h` exists and `CBLAS_NO_LINK` is unset (transcribe-cpp-sys only names `libblas`); no-op off Linux |
-| `README.md` | Operations reference: link/`dlopen` tables, permission matrix, build deps, flags, behaviour, verification commands |
+| `.github/workflows/{ci,release,pr-title}.yml` | Gates on Arch, the semantic-release → build → AUR chain, and the Conventional PR-title check |
+| `packaging/PKGBUILD` + `littera-bin.install` | AUR packaging template rendered with `pkgver`/`sha256` at release time; `arch=('x86_64')`, prebuilt archive |
+| `scripts/bump-version.sh` | Rewrites the crate version in `Cargo.toml` and the `littera` block in `Cargo.lock`; semantic-release's prepare step |
+| `LICENSE` | MIT |
+| `README.md` | Operations reference: link/`dlopen` tables, permission matrix, build deps, flags, behaviour, install, release pipeline, verification commands |
 
 ## Runtime/Tooling Preferences
 
 - **Toolchain**: stable Rust ≥ 1.98 (edition 2024). No `rust-toolchain.toml` — the MSRV is declarative only. Cargo is the only build tool; no task runner in the repo.
 - **Native build**: needs `cmake ≥ 3.16`, a C/C++ compiler, `make`, `pkgconf`, `glslc` + `glslangValidator`, Vulkan **headers and the loader stub** (`vulkan-icd-loader` — ggml links `libvulkan.so`), SPIRV headers, ALSA headers, `blas` + `cblas`. Not needed: Wayland/X11 dev packages, `libclang`/bindgen (bindings are committed), Python, OpenMP, `ydotool`. The vendored C++ is linked **statically** (`shared = false`, backends `vulkan`+`cpu`).
-- **`GGML_NATIVE=ON`** in the vendored CMake build → the release binary is host-CPU-tuned (`-march=native`) and **not portable** to other machines.
+- **`GGML_NATIVE=ON`** in the vendored CMake build → a local `cargo build` is host-CPU-tuned (`-march=native`) and **not portable** to other machines. The release workflow overrides that with `TRANSCRIBE_CMAKE_ARGS=-DTRANSCRIBE_X86_CONSERVATIVE=ON` (the crate's SIGILL-safe switch: `GGML_NATIVE` plus every x86 SIMD tier off), so the published tarball runs on baseline x86-64.
+- **No fully static build exists for this crate.** The Vulkan loader is a shared object that `dlopen`s the ICD, `libwayland-client`/`libxkbcommon`/`libX11`/`libXi`/`libxcb` are loaded at runtime by the windowing stack, and ALSA `dlopen`s its PCM plugins — a static musl binary fails at the first of these. The AUR package therefore declares `alsa-lib`, `vulkan-icd-loader`, `blas`, `cblas` and ships a dynamically linked glibc binary.
 - **Runtime**: linked `alsa-lib`, `vulkan-icd-loader`, `blas`, `cblas` (+ `libgfortran` via `blas`); `dlopen`ed `wayland-client`, `xkbcommon`, `xkbcommon-x11` and — only on the X11/Xwayland paths — `X11`, `Xi`, `xcb`. **No GL stack**: iced uses the `tiny-skia` renderer with `softbuffer` (`cargo tree -i wgpu` prints nothing), so no EGL/GL/glvnd and no `libwayland-egl`; needs a Vulkan ICD (`mesa`), PipeWire + `pipewire-alsa`, D-Bus session bus, a StatusNotifier host, `xdg-desktop-portal` with `GlobalShortcuts`, logind `uaccess` on `/dev/uinput` (paste) and `/dev/input/event*` (device hotkey; otherwise `sudo usermod -aG input $USER` + re-login). `--diagnostics` reports all four checks with remediation.
-- **Config** `~/.config/lingua/config.toml`: `onboarding_complete`, `model` (catalog id, default `nemotron-3.5-asr-streaming-0.6b-Q8_0`), `language` (`auto` or a locale from the catalog's language table — 32 languages, default `auto`; an unknown token falls back to `auto`), `hotkey` (default `CTRL+SUPER`), `hotkey_source` (`portal|device`), `backend` (`auto|vulkan|cpu`), `input_device` (`system|<host>:<device>`, default `system`, key omitted while default), `idle_unload` (`never|1|5|15|30|60` minutes, default `15`, always written; an unrecognized value falls back to the default). Models live in `~/.local/share/lingua/models` (default 751 MB, downloaded on first dictation, SHA-256-verified).
-- **Env vars**: `RUST_LOG` (default `lingua=info`, stderr), `LINGUA_OVERLAY=layer|x11` (force overlay backend), `LINGUA_HOTKEY_PORTAL=0` (skip the portal, force the device listener), `XDG_RUNTIME_DIR` (required for the IPC socket), `DISPLAY`/`WAYLAND_DISPLAY`; build-time `CBLAS_NO_LINK`, `TRANSCRIBE_DIR`, `TRANSCRIBE_CMAKE_ARGS`, `CMAKE_ARGS`, `VULKAN_SDK`, `GGML_CCACHE=OFF`.
-- **No CI, no packaging, no release process**: no `.github/`, `PKGBUILD`, systemd unit, Dockerfile or nix flake (`assets/icon/lingua.desktop` + `install-desktop.sh` install into the user's XDG data dirs only). `publish = false`. Nothing enforces the gates below except the person running them.
+- **Config** `~/.config/littera/config.toml`: `onboarding_complete`, `model` (catalog id, default `nemotron-3.5-asr-streaming-0.6b-Q8_0`), `language` (`auto` or a locale from the catalog's language table — 32 languages, default `auto`; an unknown token falls back to `auto`), `hotkey` (default `CTRL+SUPER`), `hotkey_source` (`portal|device`), `backend` (`auto|vulkan|cpu`), `input_device` (`system|<host>:<device>`, default `system`, key omitted while default), `idle_unload` (`never|1|5|15|30|60` minutes, default `15`, always written; an unrecognized value falls back to the default). Models live in `~/.local/share/littera/models` (default 751 MB, downloaded on first dictation, SHA-256-verified).
+- **Env vars**: `RUST_LOG` (default `littera=info`, stderr), `LITTERA_OVERLAY=layer|x11` (force overlay backend), `LITTERA_HOTKEY_PORTAL=0` (skip the portal, force the device listener), `XDG_RUNTIME_DIR` (required for the IPC socket), `DISPLAY`/`WAYLAND_DISPLAY`; build-time `CBLAS_NO_LINK`, `TRANSCRIBE_DIR`, `TRANSCRIBE_CMAKE_ARGS`, `CMAKE_ARGS`, `VULKAN_SDK`, `GGML_CCACHE=OFF`.
+- **No CI, no packaging, no release process**: no `.github/`, `PKGBUILD`, systemd unit, Dockerfile or nix flake (`assets/icon/littera.desktop` + `install-desktop.sh` install into the user's XDG data dirs only). `publish = false`. Nothing enforces the gates below except the person running them.
 
 ## Testing & QA
 
 - All tests are **inline `#[cfg(test)] mod tests` blocks at the end of the file** (21 of 26 modules): 222 `#[test]` fns (the count drifts as work lands), 7 `#[ignore]`. No `tests/`, no test fixtures at all, no dev-dependencies, no async runtime in tests.
 - Run: `cargo test` (unit), `cargo test -- --ignored` (display-dependent smoke), single test via module path: `cargo test app::tests::hold_to_talk_stops_on_release -- --exact`, whole module: `cargo test config::tests`. No feature flags exist (`--features` fails), and there is no lib target, so doc tests do not apply.
+- CI runs the same three gates (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`) inside `archlinux:base-devel`, i.e. on the toolchain the AUR package builds against, and caches `~/.cargo` + `target` — a green local run and a green CI run still differ in compiler version, so treat CI as the authoritative one.
 - Style to follow:
   - Descriptive snake_case sentence names, no `test_` prefix: `save_then_load_roundtrips_and_leaves_no_temp_file` (`src/config.rs:404`), `rejects_48k_stereo_wav_with_the_contract_literal` (`src/audio.rs:957`).
   - **Pin contract literals as `const`s inside the test module** and compare with production consts/strings (`src/hotkey.rs:412-415`, `src/diagnostics.rs:254-276`, `src/models.rs:532`). Comments cite FR/SC ids.

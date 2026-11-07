@@ -414,7 +414,7 @@ pub fn view(app: &App) -> Element<'_, Action> {
 fn portal_takeover_note(binding: Option<&hotkey::Binding>) -> Option<String> {
     let detail = binding?.portal_detail.as_ref()?;
     Some(format!(
-        "The compositor's shortcut dialog was refused: {detail} — Lingua listens to the key devices instead."
+        "The compositor's shortcut dialog was refused: {detail} — Littera listens to the key devices instead."
     ))
 }
 

@@ -224,7 +224,7 @@ mod tests {
 
     fn temp_dir(label: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("lingua-vulkan-icd-{}-{label}", std::process::id()));
+            std::env::temp_dir().join(format!("littera-vulkan-icd-{}-{label}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create the temp dir");
         dir
     }

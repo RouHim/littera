@@ -25,7 +25,7 @@ const HASH_BUFFER_BYTES: usize = 1024 * 1024;
 /// Read buffer used while a download is streaming to disk.
 const DOWNLOAD_BUFFER_BYTES: usize = 64 * 1024;
 
-/// On-disk path of an artifact: `<data dir>/lingua/models/<file_name>` (FR-003).
+/// On-disk path of an artifact: `<data dir>/littera/models/<file_name>` (FR-003).
 pub fn path_for(artifact: &Artifact) -> Result<PathBuf> {
     Ok(path_in(
         crate::config::Config::models_dir()?.as_path(),
@@ -140,7 +140,7 @@ pub async fn ensure(
     cancel: Arc<AtomicBool>,
     progress: Arc<dyn Fn(u64, u64) + Send + Sync>,
 ) -> Result<PathBuf> {
-    // `Config::models_dir()` creates `<data dir>/lingua/models`, so it also runs off
+    // `Config::models_dir()` creates `<data dir>/littera/models`, so it also runs off
     // the runtime thread (the project rule: blocking work never occupies a worker).
     let dir = tokio::task::spawn_blocking(crate::config::Config::models_dir)
         .await
@@ -305,7 +305,7 @@ fn transfer_to_part(
 
     let url = artifact.url;
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .user_agent(concat!("lingua/", env!("CARGO_PKG_VERSION")))
+        .user_agent(concat!("littera/", env!("CARGO_PKG_VERSION")))
         // Artifacts only ever come from HTTPS, and no redirect may leave it.
         .https_only(true)
         // Non-2xx answers are inspected below: the `Range` handling depends on it.
@@ -527,7 +527,7 @@ mod tests {
     /// Unique path in `std::env::temp_dir()`; never touches `$HOME`.
     fn temp_file(tag: &str) -> PathBuf {
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("lingua-models-{}-{tag}-{n}", std::process::id()))
+        std::env::temp_dir().join(format!("littera-models-{}-{tag}-{n}", std::process::id()))
     }
 
     fn write_temp(tag: &str, bytes: &[u8]) -> PathBuf {
@@ -644,7 +644,7 @@ mod tests {
     #[test]
     fn path_in_ends_with_the_entry_file_name() {
         // `path_for` is `path_in(models_dir(), artifact)`. Only the join is ours to
-        // test: `Config::models_dir()` *creates* `<data dir>/lingua/models`, and tests
+        // test: `Config::models_dir()` *creates* `<data dir>/littera/models`, and tests
         // must never create anything below the user's `$HOME` (nor mutate
         // `XDG_DATA_HOME`, which other modules' tests read concurrently).
         let base = Path::new("/models");
@@ -686,7 +686,7 @@ mod tests {
 
     #[test]
     fn verify_sha256_rejects_a_wrong_digest() {
-        let path = write_temp("sha-bad", b"lingua models verification payload");
+        let path = write_temp("sha-bad", b"littera models verification payload");
         let wrong = "0".repeat(64);
 
         assert_eq!(

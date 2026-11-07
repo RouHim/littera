@@ -1,7 +1,7 @@
 //! FR-014 / FR-022 environment checks.
 //!
 //! The same probe results feed three surfaces: the onboarding "System check" step,
-//! the startup problem notice and `lingua --diagnostics`. Every check is a pure
+//! the startup problem notice and `littera --diagnostics`. Every check is a pure
 //! formatter over values gathered elsewhere, so a failure reads identically in all
 //! three places and can be unit-tested without any hardware or session.
 
@@ -39,7 +39,7 @@ pub struct Check {
 }
 
 /// Everything [`collect`] needs to render the four checks. Gathered once from the
-/// live subsystems by the app, or by `main` for `lingua --diagnostics`.
+/// live subsystems by the app, or by `main` for `littera --diagnostics`.
 #[derive(Debug, Clone)]
 pub struct State {
     pub binding: Option<Binding>,
@@ -175,7 +175,7 @@ fn fell_back(info: &EngineInfo, preference: BackendPreference) -> bool {
     info.fallback.is_some() && preference != BackendPreference::Cpu
 }
 
-/// The GPU check as the app and `lingua --diagnostics` render it: [`gpu_check`]
+/// The GPU check as the app and `littera --diagnostics` render it: [`gpu_check`]
 /// with the live driver inventory attached. The probe runs only for a fallback,
 /// so a healthy machine reads no `/sys` for this check.
 pub fn gpu_check_probed(cfg: &Config, info: Option<&EngineInfo>, error: Option<&str>) -> Check {
@@ -215,7 +215,7 @@ pub fn overlay_check(backend: OverlayBackend, reason: &str) -> Check {
     }
 }
 
-/// The four checks in `lingua --diagnostics` output order: hotkey, paste, GPU,
+/// The four checks in `littera --diagnostics` output order: hotkey, paste, GPU,
 /// overlay. `cfg` supplies the model/language context when the engine has not been
 /// loaded yet and reported neither an info nor an error.
 pub fn collect(cfg: &Config, state: &State) -> Vec<Check> {

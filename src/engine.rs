@@ -158,7 +158,7 @@ pub fn spawn(
         verified: None,
     };
     match thread::Builder::new()
-        .name("lingua-engine".to_owned())
+        .name("littera-engine".to_owned())
         .spawn(move || worker.run(rx))
     {
         Ok(handle) => Engine {
@@ -197,7 +197,7 @@ pub fn init_backends() -> anyhow::Result<()> {
 ///
 /// Returns the engine info the user should expect for `pref`, plus the reason
 /// nothing usable was found. Used by the app's capability check and
-/// `lingua --diagnostics` (FR-014, FR-022).
+/// `littera --diagnostics` (FR-014, FR-022).
 pub fn probe_devices(pref: BackendPreference) -> (Option<EngineInfo>, Option<String>) {
     if let Err(err) = init_backends() {
         return (None, Some(err.to_string()));
@@ -1191,7 +1191,7 @@ mod tests {
                 selection.artifact.file_name
             );
         }
-        assert!(selection_for_path(Path::new("/models/not-a-lingua-model.gguf")).is_none());
+        assert!(selection_for_path(Path::new("/models/not-a-littera-model.gguf")).is_none());
         assert!(selection_for_path(Path::new("/models")).is_none());
     }
 
@@ -1213,7 +1213,7 @@ mod tests {
         let (tx, _rx) = mpsc::channel();
         let mut worker = Worker {
             selection: model_catalog::default_selection(),
-            path: PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            path: PathBuf::from("/nonexistent/littera-engine-test.gguf"),
             pref: BackendPreference::Auto,
             events: tx,
             model: None,
@@ -1245,7 +1245,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let engine = spawn(
             selection,
-            PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            PathBuf::from("/nonexistent/littera-engine-test.gguf"),
             BackendPreference::Auto,
             tx,
         );
@@ -1273,7 +1273,7 @@ mod tests {
 
     #[test]
     fn a_load_that_cannot_start_reports_loading_then_the_reason() {
-        let path = PathBuf::from("/nonexistent/lingua-engine-test.gguf");
+        let path = PathBuf::from("/nonexistent/littera-engine-test.gguf");
         let (tx, rx) = mpsc::channel();
         let engine = spawn(
             model_catalog::default_selection(),
@@ -1306,7 +1306,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
         let engine = spawn(
             model_catalog::default_selection(),
-            PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            PathBuf::from("/nonexistent/littera-engine-test.gguf"),
             BackendPreference::Auto,
             tx,
         );
@@ -1332,11 +1332,11 @@ mod tests {
 
     #[test]
     fn an_unknown_model_file_fails_without_a_loading_event() {
-        let path = PathBuf::from("/models/not-a-lingua-model.gguf");
+        let path = PathBuf::from("/models/not-a-littera-model.gguf");
         let (tx, rx) = mpsc::channel();
         let engine = spawn(
             model_catalog::default_selection(),
-            PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+            PathBuf::from("/nonexistent/littera-engine-test.gguf"),
             BackendPreference::Auto,
             tx,
         );
@@ -1367,7 +1367,7 @@ mod tests {
         (
             Worker {
                 selection: model_catalog::default_selection(),
-                path: PathBuf::from("/nonexistent/lingua-engine-test.gguf"),
+                path: PathBuf::from("/nonexistent/littera-engine-test.gguf"),
                 pref: BackendPreference::Auto,
                 events: tx,
                 model: None,

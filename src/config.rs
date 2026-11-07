@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 /// Application id: the XDG directory name and the single-instance/tray identifier.
-pub const APP_ID: &str = "lingua";
+pub const APP_ID: &str = "littera";
 
 /// The distinguished `input_device` value — and the meaning of an absent key: record from the
 /// microphone the system's audio layer currently designates (FR-001).
@@ -343,7 +343,7 @@ impl Default for Config {
 }
 
 impl Config {
-    /// `$XDG_CONFIG_HOME/lingua/config.toml`, falling back to `~/.config/lingua/config.toml`.
+    /// `$XDG_CONFIG_HOME/littera/config.toml`, falling back to `~/.config/littera/config.toml`.
     pub fn path() -> Result<PathBuf> {
         let base = dirs::config_dir().ok_or_else(error_no_config_dir)?;
         Ok(base.join(APP_ID).join("config.toml"))
@@ -366,7 +366,7 @@ impl Config {
         self.save_to(&Self::path()?)
     }
 
-    /// `$XDG_DATA_HOME/lingua/models`, created on demand (FR-003).
+    /// `$XDG_DATA_HOME/littera/models`, created on demand (FR-003).
     pub fn models_dir() -> Result<PathBuf> {
         let base = dirs::data_dir().ok_or_else(error_no_data_dir)?;
         let dir = base.join(APP_ID).join("models");
@@ -498,7 +498,7 @@ mod tests {
     use super::*;
 
     fn temp_config_path(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("lingua-config-{}-{tag}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("littera-config-{}-{tag}", std::process::id()));
         fs::create_dir_all(&dir).expect("create temp dir");
         dir.join("config.toml")
     }

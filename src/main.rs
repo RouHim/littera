@@ -1,4 +1,4 @@
-//! Lingua — local voice dictation for Linux/Wayland.
+//! Littera — local voice dictation for Linux/Wayland.
 //!
 //! `main` resolves the two verification flags (`--diagnostics`,
 //! `--audio-file`) before anything else, otherwise it enforces single-instance
@@ -8,7 +8,7 @@
 
 /// The process-wide Rust allocator: mimalloc instead of the platform malloc.
 ///
-/// Lingua allocates concurrently from several threads at once — a fresh buffer per capture
+/// Littera allocates concurrently from several threads at once — a fresh buffer per capture
 /// callback that the capture thread later frees, the engine worker, one listener thread per
 /// keyboard, the calloop clipboard loops, iced's layout and render passes. A buffer allocated
 /// on one thread and freed on another is exactly the pattern that makes glibc's allocator take
@@ -83,7 +83,7 @@ fn main() -> Result<()> {
         Err(error) => {
             emit(&format!("{error:#}"));
             emit(
-                "usage: lingua [--diagnostics | --audio-file <WAV> [--print-transcript] [--latency]]",
+                "usage: littera [--diagnostics | --audio-file <WAV> [--print-transcript] [--latency]]",
             );
             std::process::exit(2);
         }
@@ -132,7 +132,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Cli> {
     Ok(cli)
 }
 
-/// `lingua --diagnostics`: print the four system checks and exit 0.
+/// `littera --diagnostics`: print the four system checks and exit 0.
 fn diagnostics_cli() -> Result<()> {
     let config = load_config_or_default();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -191,7 +191,7 @@ fn diagnostics_cli() -> Result<()> {
     Ok(())
 }
 
-/// `lingua --audio-file <WAV>`: the production pipeline on a file.
+/// `littera --audio-file <WAV>`: the production pipeline on a file.
 fn audio_file_cli(path: &Path, print_transcript: bool, latency: bool) -> Result<()> {
     let config = load_config_or_default();
     let samples = audio::read_wav_16k_mono(path)?;

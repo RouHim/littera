@@ -1,0 +1,182 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.result.outputs.published }}
+      version: ${{ steps.result.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+      # The tag lives on HEAD when semantic-release produced a release; on a
+      # plain push HEAD carries no tag, so nothing downstream must run.
+      - id: result
+        run: |
+          set -eu
+          if tag=$(git describe --tags --exact-match 2>/dev/null); then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: build x86_64 archive
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    outputs:
+      version: ${{ needs.release.outputs.version }}
+      sha256: ${{ steps.package.outputs.sha256 }}
+    steps:
+      - name: System dependencies
+        run: >-
+          pacman -Syu --noconfirm --needed
+          git cmake ninja vulkan-headers spirv-headers vulkan-icd-loader
+          shaderc glslang alsa-lib blas cblas rust github-cli
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-release-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-release-
+      # TRANSCRIBE_X86_CONSERVATIVE is the crate's own SIGILL-safe switch: it
+      # turns GGML_NATIVE and every x86 SIMD tier off, so the published binary
+      # runs on baseline x86-64 instead of the runner's CPU.
+      - name: Build
+        env:
+          TRANSCRIBE_CMAKE_ARGS: -DTRANSCRIBE_X86_CONSERVATIVE=ON
+        run: cargo build --release --locked
+      - name: Package
+        id: package
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -eu
+          dir="dist/littera-$VERSION-x86_64"
+          mkdir -p "$dir"
+          install -Dm755 target/release/littera "$dir/littera"
+          strip "$dir/littera"
+          install -Dm644 assets/icon/littera.desktop "$dir/littera.desktop"
+          cp -R assets/icon/hicolor "$dir/icons"
+          install -Dm644 LICENSE "$dir/LICENSE"
+          archive="littera-$VERSION-x86_64.tar.gz"
+          tar -C dist -czf "$archive" "littera-$VERSION-x86_64"
+          sha256sum "$archive" | cut -d' ' -f1 > "$archive.sha256"
+          echo "sha256=$(cat "$archive.sha256")" >> "$GITHUB_OUTPUT"
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -eu
+          archive="littera-$VERSION-x86_64.tar.gz"
+          gh release upload "v$VERSION" "$archive" "$archive.sha256" --clobber
+
+  aur:
+    name: publish AUR
+    needs:
+      - release
+      - build
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    steps:
+      - name: System dependencies
+        run: pacman -Syu --noconfirm --needed git openssh
+      - uses: actions/checkout@v4
+      - name: Render PKGBUILD
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          SHA256: ${{ needs.build.outputs.sha256 }}
+          AUR_MAINTAINER_EMAIL: ${{ vars.AUR_MAINTAINER_EMAIL || 'rouhim@users.noreply.github.com' }}
+        run: |
+          set -eu
+          mkdir -p aur-build
+          sed -e "s|__VERSION__|$VERSION|g" \
+              -e "s|__SHA256__|$SHA256|g" \
+              -e "s|__MAINTAINER_EMAIL__|$AUR_MAINTAINER_EMAIL|g" \
+              packaging/PKGBUILD > aur-build/PKGBUILD
+          cp packaging/littera-bin.install aur-build/littera-bin.install
+          # makepkg refuses to run as root; .SRCINFO is the only thing needed.
+          useradd --create-home builder
+          chown -R builder:builder aur-build
+          su builder -c "cd '$PWD/aur-build' && makepkg --printsrcinfo > .SRCINFO"
+          chown -R root:root aur-build
+      # AUR packages are created through the web form, not by pushing. Keeping
+      # the rendered files as an artifact is what makes that first submission
+      # possible without rebuilding anything.
+      - name: Upload PKGBUILD for the first submission
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: littera-bin-${{ needs.release.outputs.version }}
+          path: |
+            aur-build/PKGBUILD
+            aur-build/.SRCINFO
+            aur-build/littera-bin.install
+      - name: Push to AUR
+        env:
+          AUR_SSH_KEY: ${{ secrets.AUR_SSH_KEY }}
+          AUR_USERNAME: ${{ vars.AUR_USERNAME || 'rouhim' }}
+          AUR_MAINTAINER_EMAIL: ${{ vars.AUR_MAINTAINER_EMAIL || 'rouhim@users.noreply.github.com' }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -eu
+          if [ -z "${AUR_SSH_KEY:-}" ]; then
+            echo "::error::The AUR_SSH_KEY repository secret is not set. Add the passphrase-less key whose public half is registered in the AUR account (Settings -> Secrets and variables -> Actions), then re-run this job."
+            exit 1
+          fi
+          install -d -m 700 /root/.ssh
+          printf '%s\n' "$AUR_SSH_KEY" > /root/.ssh/aur
+          chmod 600 /root/.ssh/aur
+          install -Dm644 .github/aur_known_hosts /root/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes"
+
+          if ! git clone --depth 1 ssh://aur@aur.archlinux.org/littera-bin.git aur; then
+            echo "::error::The AUR package littera-bin does not exist yet. Download the littera-bin-$VERSION artifact, submit its PKGBUILD once at https://aur.archlinux.org/submit, then re-run this job."
+            exit 1
+          fi
+
+          cp aur-build/PKGBUILD aur-build/.SRCINFO aur-build/littera-bin.install aur/
+
+          cd aur
+          git config user.name "$AUR_USERNAME"
+          git config user.email "$AUR_MAINTAINER_EMAIL"
+          git add PKGBUILD .SRCINFO littera-bin.install
+          if git diff --cached --quiet; then
+            echo "littera-bin is already at $VERSION-1"
+            exit 0
+          fi
+          git commit -m "upgpkg: littera-bin $VERSION-1"
+          git push origin master

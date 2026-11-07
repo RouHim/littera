@@ -18,9 +18,9 @@ use crate::model_catalog::{self, Selection};
 use crate::models;
 
 /// The embedded application icon: the 256-px rendering of the icon master
-/// (`assets/icon/hicolor/scalable/apps/lingua.svg`), and the single source for
+/// (`assets/icon/hicolor/scalable/apps/littera.svg`), and the single source for
 /// both the tray pixmap and the window icon (FR-005).
-pub const ICON_PNG: &[u8] = include_bytes!("../assets/icon/hicolor/256x256/apps/lingua.png");
+pub const ICON_PNG: &[u8] = include_bytes!("../assets/icon/hicolor/256x256/apps/littera.png");
 
 /// The embedded value face — Inter Regular (SIL OFL 1.1, see
 /// `assets/Inter-LICENSE.txt`). Registered with iced in `run_daemon`; the
@@ -539,10 +539,10 @@ pub fn view(app: &App, id: window::Id) -> Element<'_, Message> {
 /// Window titles (the OS-level title bar, not a view heading).
 pub fn window_title(app: &App, id: window::Id) -> String {
     match app.windows.get(&id) {
-        Some(Surface::Onboarding) => "Lingua — Setup".to_owned(),
-        Some(Surface::Settings) => "Lingua — Settings".to_owned(),
-        Some(Surface::Problems) => "Lingua — Problems".to_owned(),
-        None => "Lingua".to_owned(),
+        Some(Surface::Onboarding) => "Littera — Setup".to_owned(),
+        Some(Surface::Settings) => "Littera — Settings".to_owned(),
+        Some(Surface::Problems) => "Littera — Problems".to_owned(),
+        None => "Littera".to_owned(),
     }
 }
 
@@ -570,7 +570,7 @@ pub fn theme(_app: &App, _id: window::Id) -> Theme {
 pub fn app_theme() -> Theme {
     static THEME: LazyLock<Theme> = LazyLock::new(|| {
         Theme::custom(
-            "Lingua",
+            "Littera",
             iced::theme::Palette {
                 background: palette::BACKGROUND,
                 text: palette::TEXT,

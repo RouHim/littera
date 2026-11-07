@@ -1,6 +1,6 @@
 //! Clipboard ownership (FR-012).
 //!
-//! Lingua has to stay the selection source: whoever pastes asks *us* for the data, so the transcript
+//! Littera has to stay the selection source: whoever pastes asks *us* for the data, so the transcript
 //! lives in this process instead of a buffer. Four mechanisms can do that, and [`Clipboard::new`]
 //! picks the first one that works — a background daemon owns no surface and must not steal focus,
 //! which rules out the plain core protocol:
@@ -112,9 +112,9 @@ const NO_SEAT: &str = "the compositor exposes no wl_seat";
 /// Error when there is no X11 display to fall back to.
 const NO_X11: &str = "cannot connect to the X11 server (is DISPLAY set?)";
 /// Error when an earlier panic left the clipboard unusable.
-const POISONED: &str = "clipboard is poisoned after an earlier panic — restart Lingua";
+const POISONED: &str = "clipboard is poisoned after an earlier panic — restart Littera";
 /// Error when the clipboard thread is not running.
-const WORKER_GONE: &str = "the clipboard thread is not running — restart Lingua";
+const WORKER_GONE: &str = "the clipboard thread is not running — restart Littera";
 /// Error when the compositor never confirmed the selection.
 const NOT_CONFIRMED: &str =
     "the compositor did not confirm the clipboard selection in time — is the session alive?";
@@ -503,7 +503,7 @@ fn read_foreign_offer(
     reply: Sender<Option<String>>,
 ) {
     let spawned = std::thread::Builder::new()
-        .name("lingua-clipboard-read".to_owned())
+        .name("littera-clipboard-read".to_owned())
         .spawn(move || {
             // Only the owner writes; dropping our end makes its close signal EOF.
             drop(write_end);
@@ -846,13 +846,13 @@ fn spawn_wayland(
     let (cmd, channel) = calloop::channel::channel::<Cmd>();
     let (ready, started) = mpsc::channel::<Result<()>>();
     let thread = std::thread::Builder::new()
-        .name("lingua-clipboard".to_owned())
+        .name("littera-clipboard".to_owned())
         .spawn(move || run_wayland_worker(worker, queue, channel, ready))
         .context("cannot spawn the clipboard thread")?;
     finish_start(started, thread, cmd, mechanism)
 }
 
-/// The X11 atoms Lingua compares against or writes.
+/// The X11 atoms Littera compares against or writes.
 struct X11Atoms {
     clipboard: Atom,
     targets: Atom,
@@ -876,7 +876,7 @@ impl X11Atoms {
             text: intern(connection, b"TEXT")?,
             string: intern(connection, b"STRING")?,
             plain: intern(connection, b"text/plain;charset=utf-8")?,
-            snapshot: intern(connection, b"LINGUA_SNAPSHOT")?,
+            snapshot: intern(connection, b"LITTERA_SNAPSHOT")?,
         })
     }
 }
@@ -1325,7 +1325,7 @@ fn start_x11() -> Result<Clipboard> {
     let (cmd, channel) = calloop::channel::channel::<Cmd>();
     let (ready, started) = mpsc::channel::<Result<()>>();
     let thread = std::thread::Builder::new()
-        .name("lingua-clipboard-x11".to_owned())
+        .name("littera-clipboard-x11".to_owned())
         .spawn(move || run_x11_worker(state, channel, ready))
         .context("cannot spawn the X11 clipboard thread")?;
     finish_start(started, thread, cmd, MECHANISM_X11)
@@ -1651,7 +1651,7 @@ mod tests {
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let fixture = "lingua snapshot fixture";
+        let fixture = "littera snapshot fixture";
         let Some(mut owner) = spawn_owner(fixture) else {
             return;
         };
@@ -1677,7 +1677,7 @@ mod tests {
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
-        let fixture = "lingua restore fixture";
+        let fixture = "littera restore fixture";
         let Some(mut owner) = spawn_owner(fixture) else {
             return;
         };
@@ -1690,7 +1690,7 @@ mod tests {
             Some(fixture),
             "the fixture must be readable"
         );
-        clipboard.copy_text("lingua transcript").expect("copy");
+        clipboard.copy_text("littera transcript").expect("copy");
         let restored = clipboard
             .restore(previous.as_deref().expect("snapshot"))
             .expect("restore");
@@ -1709,7 +1709,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let clipboard = crate::clipboard::Clipboard::new().expect("clipboard");
-        clipboard.copy_text("lingua transcript").expect("copy");
+        clipboard.copy_text("littera transcript").expect("copy");
 
         let newer = "the newer copy";
         let Some(mut owner) = spawn_owner(newer) else {
@@ -1733,7 +1733,7 @@ mod tests {
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
         let clipboard = crate::clipboard::Clipboard::new().expect("clipboard");
-        let text = "lingua clipboard chain test";
+        let text = "littera clipboard chain test";
         clipboard.copy_text(text).expect("copy");
 
         // `wl-paste` is an independent client: it asks the compositor for the

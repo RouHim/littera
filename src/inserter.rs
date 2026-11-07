@@ -25,7 +25,7 @@ use crate::clipboard::Clipboard;
 pub const UINPUT_PATH: &str = "/dev/uinput";
 
 /// Name the virtual keyboard advertises to the compositor.
-const VIRTUAL_KEYBOARD_NAME: &str = "lingua virtual keyboard";
+const VIRTUAL_KEYBOARD_NAME: &str = "littera virtual keyboard";
 
 /// Time between the chord press and the key release. The press needs its own report for the focused
 /// toolkit to see it, and 25 ms gives the compositor room to publish the new selection before the
@@ -45,7 +45,7 @@ const KEY_PRESS: i32 = 1;
 const KEY_RELEASE: i32 = 0;
 
 /// Reason used when an earlier panic left the virtual keyboard unusable.
-const POISONED: &str = "virtual keyboard is poisoned after an earlier panic — restart Lingua";
+const POISONED: &str = "virtual keyboard is poisoned after an earlier panic — restart Littera";
 
 /// `VirtualDevice::builder` failure: the device node is missing or not writable.
 const OPEN_FAILED: &str = "cannot open /dev/uinput — is uinput available and writable?";

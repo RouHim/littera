@@ -16,7 +16,7 @@
 //! `SetInputFocus` is never called. The window is unmanaged by the user: the compositor is free
 //! to keep it on top, and it never steals a keystroke from the application being dictated into.
 //!
-//! All X11 work happens on one dedicated thread (`lingua-overlay-x11`) that owns the connection
+//! All X11 work happens on one dedicated thread (`littera-overlay-x11`) that owns the connection
 //! and every X11 resource; the presenter only sends commands over a channel and waits for the
 //! acknowledgement. Pixels travel through a server-allocated MIT-SHM segment (SHM 1.2
 //! `CreateSegment`), which is written through the returned file descriptor, so no `mmap` and no
@@ -66,7 +66,7 @@ const MWM_HINTS_DECORATIONS: u32 = 1 << 1;
 const CARD_PIXEL: u32 = 0x001E_1E24;
 const CARD_RGB: (u8, u8, u8) = (0x1E, 0x1E, 0x24);
 
-const THREAD_NAME: &str = "lingua-overlay-x11";
+const THREAD_NAME: &str = "littera-overlay-x11";
 
 /// A monitor (or screen) rectangle in root coordinates: `(x, y, width, height)`.
 type Rect = (i32, i32, i32, i32);
@@ -724,16 +724,16 @@ impl Display {
             "WM_CLASS",
             AtomEnum::WM_CLASS.into(),
             AtomEnum::STRING.into(),
-            b"lingua\0Lingua\0",
+            b"littera\0Littera\0",
         )?;
-        // `xprop -name lingua` matches WM_NAME, which is also what a WM shows in any window list.
+        // `xprop -name littera` matches WM_NAME, which is also what a WM shows in any window list.
         set_property8(
             &self.conn,
             window,
             "WM_NAME",
             AtomEnum::WM_NAME.into(),
             AtomEnum::STRING.into(),
-            b"lingua",
+            b"littera",
         )?;
         set_property8(
             &self.conn,
@@ -741,7 +741,7 @@ impl Display {
             "_NET_WM_NAME",
             atoms.net_wm_name,
             atoms.utf8_string,
-            b"lingua",
+            b"littera",
         )?;
         set_property32(
             &self.conn,
@@ -1114,8 +1114,8 @@ mod tests {
         assert!(
             String::from_utf8_lossy(&class.value)
                 .to_ascii_lowercase()
-                .contains("lingua"),
-            "the overlay window must identify as lingua, got {:?}",
+                .contains("littera"),
+            "the overlay window must identify as littera, got {:?}",
             class.value
         );
 

@@ -102,7 +102,7 @@ pub fn view(app: &App) -> Element<'_, Action> {
     };
 
     column![
-        ui::title::<Action>("Set up Lingua"),
+        ui::title::<Action>("Set up Littera"),
         ui::lead::<Action>(
             "Local voice dictation: press a hotkey, speak, and the text lands at your cursor."
         ),

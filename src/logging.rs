@@ -5,10 +5,10 @@ use tracing_subscriber::EnvFilter;
 
 /// Install the global tracing subscriber.
 ///
-/// `RUST_LOG` overrides the default `lingua=info` filter.
+/// `RUST_LOG` overrides the default `littera=info` filter.
 pub fn init() -> Result<()> {
     let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("lingua=info"));
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("littera=info"));
 
     tracing_subscriber::fmt()
         .with_env_filter(filter)

@@ -55,7 +55,7 @@ use crate::overlay_render;
 type OverlayLoop = (EventLoop<'static, LayerLoop>, LayerLoop);
 
 /// Namespace of the indicator surface; compositors show it as the surface's app id.
-const NAMESPACE: &str = "lingua-overlay";
+const NAMESPACE: &str = "littera-overlay";
 
 /// Reported when the compositor does not implement layer-shell at all.
 const LAYER_SHELL_MISSING: &str =
@@ -118,7 +118,7 @@ pub fn spawn() -> anyhow::Result<Box<dyn OverlayPresenter>> {
 
     let (commands, channel) = channel::<OverlayCmd>();
     let (ready, ready_rx) = mpsc::channel::<Result<(), String>>();
-    let builder = std::thread::Builder::new().name("lingua-overlay".to_owned());
+    let builder = std::thread::Builder::new().name("littera-overlay".to_owned());
     let spawned = builder.spawn(move || start_thread(ready, channel));
     let thread = spawned.context("cannot spawn the overlay presenter thread")?;
 

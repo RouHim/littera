@@ -35,8 +35,8 @@ const SUPERVISOR_INTERVAL: Duration = Duration::from_secs(5);
 /// retires the mechanism promptly.
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-const READER_THREAD_NAME: &str = "lingua-hotkey-device";
-const SUPERVISOR_THREAD_NAME: &str = "lingua-hotkey-supervisor";
+const READER_THREAD_NAME: &str = "littera-hotkey-device";
+const SUPERVISOR_THREAD_NAME: &str = "littera-hotkey-supervisor";
 
 /// Whether at least one keyboard device is readable by this user.
 ///
@@ -210,7 +210,7 @@ fn device_trigger_description(chord: &Chord) -> String {
 
 /// Readable keyboard devices: those whose key set contains `KEY_A`.
 ///
-/// The `KEY_A` filter also excludes Lingua's own uinput paste device, which only
+/// The `KEY_A` filter also excludes Littera's own uinput paste device, which only
 /// advertises `KEY_LEFTCTRL` and `KEY_V`.
 fn keyboard_devices() -> Vec<(PathBuf, Device)> {
     evdev::enumerate()

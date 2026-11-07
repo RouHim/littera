@@ -16,8 +16,8 @@ use crate::hotkey_portal::{PortalBinding, PortalKeepAlive};
 /// Default chord: both modifiers are held for the whole dictation.
 pub const DEFAULT_CHORD: &str = "CTRL+SUPER";
 
-/// Environment switch that disables the portal path (`LINGUA_HOTKEY_PORTAL=0`).
-pub const OVERRIDE_PORTAL: &str = "LINGUA_HOTKEY_PORTAL";
+/// Environment switch that disables the portal path (`LITTERA_HOTKEY_PORTAL=0`).
+pub const OVERRIDE_PORTAL: &str = "LITTERA_HOTKEY_PORTAL";
 
 /// Pinned settings text describing the trade-off of the device listener.
 const DEVICE_LIMITATION_NOTE: &str =
@@ -159,7 +159,7 @@ fn portal_honoured(requested: &str, trigger: &str) -> bool {
 ///
 /// GNOME spells a bound keybinding as `Press <Modifier>key` — `Press <Alt>r`
 /// for Alt+R — and reports a trigger that is already a chord (`Ctrl+Super`)
-/// as-is. Anything else (another compositor's prose, a key Lingua cannot
+/// as-is. Anything else (another compositor's prose, a key Littera cannot
 /// spell) is `None`: the requested chord stays the recorded one.
 fn trigger_chord(trigger: &str) -> Option<String> {
     let trimmed = trigger.trim();
@@ -302,7 +302,7 @@ impl Mechanism {
 /// Bind exactly one mechanism.
 ///
 /// The portal is tried first unless `preferred == Some(HotkeySource::Device)` or
-/// `LINGUA_HOTKEY_PORTAL=0`; the device listener takes over when the portal is
+/// `LITTERA_HOTKEY_PORTAL=0`; the device listener takes over when the portal is
 /// unavailable, refuses, or binds nothing at all.
 pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<HotkeyHandle, BindError> {
     let parsed = parse_chord(chord)
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn a_portal_report_counts_as_bound_only_when_it_is_the_requested_chord() {
         // GNOME reports the accelerator as `Press <Modifier>key`; every
-        // spelling Lingua understands has to arrive as the requested chord.
+        // spelling Littera understands has to arrive as the requested chord.
         assert!(portal_honoured("ALT+R", "Press <Alt>r"));
         assert!(portal_honoured("CTRL+SHIFT+F9", "Press <Control><Shift>F9"));
         assert!(portal_honoured("CTRL+SUPER", "Ctrl+Super"));
@@ -651,7 +651,7 @@ mod tests {
 
     #[test]
     fn the_device_preference_never_uses_the_portal() {
-        // `portal_enabled` also consults $LINGUA_HOTKEY_PORTAL; the device
+        // `portal_enabled` also consults $LITTERA_HOTKEY_PORTAL; the device
         // preference must win regardless of the environment.
         assert!(!portal_enabled(Some(HotkeySource::Device)));
     }

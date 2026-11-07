@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "generatedAt": "2026-10-17T00:00:00Z",
-  "title": "Design System: Lingua",
+  "title": "Design System: Littera",
   "extensions": {
     "colorMeta": {
       "enamel": { "role": "neutral", "displayName": "Enamel", "canonical": "#22282E", "tonalRamp": ["#000C11", "#20262C", "#3C4349", "#5B6269", "#7C838B", "#9EA6AE", "#C2CAD2", "#E7F0F8"] },
@@ -85,7 +85,7 @@
   ],
   "narrative": {
     "northStar": "The Nameplate",
-    "overview": "Lingua's windows are the machine talking about itself. The Settings screen opens on a single stamped plate — model, backend, device, hotkey, one state lamp each — and then disciplined rows of field facts below it. Legends are condensed and capitalised as if silk-screened onto enamelled steel; values are set plainly; identifiers, paths and commands are monospace because they are data. Alarms are placards: a full frame, the tone's wash, the tone's ink. Nothing is rounded, nothing floats, nothing glows.\n\nThe use scene fixes the light: someone at a desk, often at night, screen-lit, opening Settings deliberately mid-work to change one setting and close it again; the overlay pill floats over any content at any hour. That forces a dark steel ground with one signal colour, and it forces restraint — the app is a background instrument, not a destination.\n\nThe system is deliberately sparse where it can be and explicit where it must be. Every capability the platform withholds has a surface: a lamp dims, a placard turns on, a blocked path names its fix. The world carries colour as information — the signal yellow means \"actable or attention\", the stop red means failure, the run green means a verified machine state — and nothing else is coloured.",
+    "overview": "Littera's windows are the machine talking about itself. The Settings screen opens on a single stamped plate — model, backend, device, hotkey, one state lamp each — and then disciplined rows of field facts below it. Legends are condensed and capitalised as if silk-screened onto enamelled steel; values are set plainly; identifiers, paths and commands are monospace because they are data. Alarms are placards: a full frame, the tone's wash, the tone's ink. Nothing is rounded, nothing floats, nothing glows.\n\nThe use scene fixes the light: someone at a desk, often at night, screen-lit, opening Settings deliberately mid-work to change one setting and close it again; the overlay pill floats over any content at any hour. That forces a dark steel ground with one signal colour, and it forces restraint — the app is a background instrument, not a destination.\n\nThe system is deliberately sparse where it can be and explicit where it must be. Every capability the platform withholds has a surface: a lamp dims, a placard turns on, a blocked path names its fix. The world carries colour as information — the signal yellow means \"actable or attention\", the stop red means failure, the run green means a verified machine state — and nothing else is coloured.",
     "keyCharacteristics": [
       "One capability plate per surface, framed twice, never repeated.",
       "Stamped square controls; hover fills, nothing tweens.",

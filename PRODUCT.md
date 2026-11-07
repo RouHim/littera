@@ -22,7 +22,7 @@ behavior.
 
 ## Product Purpose
 
-Lingua is a privacy-first voice dictation application for Linux/Wayland: press
+Littera is a privacy-first voice dictation application for Linux/Wayland: press
 a global hotkey, speak, and the transcript is inserted at the cursor of the
 focused application while streaming partials appear on a bottom-centre overlay.
 Recognition runs entirely in the application's own process — no cloud, no
@@ -93,9 +93,9 @@ tooling cannot truthfully claim.
 
 ## Brand Commitments
 
-- Name: Lingua.
-- Assets on hand and embedded: `assets/icon/hicolor/256x256/apps/lingua.png`
-  (icon; master `assets/icon/hicolor/scalable/apps/lingua.svg`, tray + window)
+- Name: Littera.
+- Assets on hand and embedded: `assets/icon/hicolor/256x256/apps/littera.png`
+  (icon; master `assets/icon/hicolor/scalable/apps/littera.svg`, tray + window)
   and the design language's two faces — `assets/Inter-Regular.ttf` (values)
   and `assets/BarlowCondensed-SemiBold.ttf` (legends), both SIL OFL 1.1 with
   license text alongside.
