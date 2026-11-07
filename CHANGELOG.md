@@ -1,3 +1,9 @@
+## [1.0.2](https://github.com/RouHim/littera/compare/v1.0.1...v1.0.2) (2026-11-07)
+
+### Bug Fixes
+
+* provide libxcb for the CI and release link step ([9d6ef81](https://github.com/RouHim/littera/commit/9d6ef815f2da14ab85b9c0b7e9d9380582bef248))
+
 ## [1.0.1](https://github.com/RouHim/littera/compare/v1.0.0...v1.0.1) (2026-11-07)
 
 ### Bug Fixes
