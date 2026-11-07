@@ -25,7 +25,7 @@ jobs:
         run: >-
           pacman -Syu --noconfirm --needed
           git cmake ninja vulkan-headers spirv-headers vulkan-icd-loader
-          shaderc glslang alsa-lib blas cblas libxkbcommon rust
+          shaderc glslang alsa-lib blas cblas libxkbcommon libxcb rust
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:

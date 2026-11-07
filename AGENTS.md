@@ -20,7 +20,7 @@
   X11-only code path that is not a fallback, or a non-Linux code path.
 - Out of scope by spec: cloud/BYOK models, transcript history, custom dictionaries,
   meeting transcription, accounts, macOS/Windows.
-- Repo state: branch `main`, `origin` = `github.com/RouHim/littera`, and the repo releases itself: `.github/workflows/{ci,release,pr-title}.yml`, semantic-release (`.releaserc.json`, `package.json`), `renovate.json`, the AUR packaging in `packaging/` and the version bumper `scripts/bump-version.sh`. `install-desktop.sh` is the user-local desktop-entry/icon installer; the shipped desktop entry is `assets/icon/littera.desktop`. No tag or release exists until a `feat`/`fix`/`perf` commit lands on `main`.
+- Repo state: branch `main`, `origin` = `github.com/RouHim/littera` (**public**), and the repo releases itself: `.github/workflows/{ci,release,pr-title}.yml`, semantic-release (`.releaserc.json`, `package.json`), `renovate.json`, the AUR packaging in `packaging/` and the version bumper `scripts/bump-version.sh`. Every `feat`/`fix`/`perf` commit that lands on `main` produces the next `vX.Y.Z` tag, the GitHub release assets and the AUR push. `install-desktop.sh` is the user-local desktop-entry/icon installer; the shipped desktop entry is `assets/icon/littera.desktop`.
 
 ## Architecture & Data Flow
 
