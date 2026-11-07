@@ -34,7 +34,7 @@ cargo build --release
 `install-desktop.sh` is required for the hotkey portal path: the portal identifies a
 caller by its installed desktop entry, and without one it refuses the shortcut dialog.
 
-**Renamed from `lingua`.** Builds from before the 0.1.0 release used `lingua` for the
+**Renamed from `lingua`.** Builds from before the rename used `lingua` for the
 binary, the config/data directories, the IPC socket and the desktop entry. Move the state
 once and re-install the entry:
 
