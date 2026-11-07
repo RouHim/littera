@@ -1,3 +1,9 @@
+## [1.0.3](https://github.com/RouHim/littera/compare/v1.0.2...v1.0.3) (2026-11-07)
+
+### Bug Fixes
+
+* pass the repository to gh explicitly ([a35afae](https://github.com/RouHim/littera/commit/a35afae4ec89679b3c578475f4cb41badd56d8f5))
+
 ## [1.0.2](https://github.com/RouHim/littera/compare/v1.0.1...v1.0.2) (2026-11-07)
 
 ### Bug Fixes
