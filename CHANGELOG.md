@@ -1,3 +1,9 @@
+## [1.0.1](https://github.com/RouHim/littera/compare/v1.0.0...v1.0.1) (2026-11-07)
+
+### Bug Fixes
+
+* install libxkbcommon for the CI and release builds ([e7e315b](https://github.com/RouHim/littera/commit/e7e315bb0955f8b9a88410d57efc73d7599e02b3))
+
 ## 1.0.0 (2026-11-07)
 
 ### Features
