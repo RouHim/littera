@@ -1,5 +1,7 @@
 # Littera — local voice dictation for Linux/Wayland
 
+![Littera — local voice dictation for Linux/Wayland](assets/banner.png)
+
 Press a global hotkey, speak, and the transcript lands at the cursor of the focused
 application. Speech recognition runs **fully in-process** (Nemotron 3.5 ASR streaming
 0.6B via [transcribe.cpp](https://github.com/handy-computer/transcribe.cpp), static
@@ -380,6 +382,8 @@ littera --audio-file <16-kHz-mono-PCM-WAV> [--print-transcript] [--latency]
 - `assets/icon/hicolor/256x256/apps/littera.png` — the same file the binary embeds as
   its tray pixmap and window icon; a decode failure only logs a warning and the daemon
   keeps running.
+- `assets/banner.png` — the README banner: 1280×320, the icon tile, the Barlow Condensed
+  wordmark and an Inter tagline in the `DESIGN.md` palette.
 - `assets/icon/littera.desktop` and `./install-desktop.sh` — the desktop entry
   (`Icon=littera`, `StartupWMClass=littera`) and the one command that copies it plus the
   icon set into `${XDG_DATA_HOME:-~/.local/share}`; it rewrites `Exec` to this
