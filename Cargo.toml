@@ -35,7 +35,7 @@ iced = { version = "0.14.0", default-features = false, features = [
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 futures-util = "0.3"
 # Desktop portals (global shortcut binding).
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts", "raw_handle"] }
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "global_shortcuts", "raw_handle"] }
 # Microphone capture + resampling to 16 kHz mono.
 cpal = "0.18"
 rubato = "5.0"
