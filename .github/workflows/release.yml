@@ -53,6 +53,7 @@ jobs:
     outputs:
       version: ${{ needs.release.outputs.version }}
       sha256: ${{ steps.package.outputs.sha256 }}
+      glibc: ${{ steps.package.outputs.glibc }}
     steps:
       - name: System dependencies
         run: >-
@@ -95,6 +96,10 @@ jobs:
           tar -C dist -czf "$archive" "littera-$VERSION-x86_64"
           sha256sum "$archive" | cut -d' ' -f1 > "$archive.sha256"
           echo "sha256=$(cat "$archive.sha256")" >> "$GITHUB_OUTPUT"
+          # The AUR package declares the glibc it was actually built against,
+          # so pacman refuses the install on a system older than this build.
+          glibc=$(readelf --version-info "$dir/littera" | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -1 | cut -d_ -f2)
+          echo "glibc=$glibc" >> "$GITHUB_OUTPUT"
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -119,12 +124,14 @@ jobs:
         env:
           VERSION: ${{ needs.release.outputs.version }}
           SHA256: ${{ needs.build.outputs.sha256 }}
+          GLIBC: ${{ needs.build.outputs.glibc }}
           AUR_MAINTAINER_EMAIL: ${{ vars.AUR_MAINTAINER_EMAIL || 'rouhim@users.noreply.github.com' }}
         run: |
           set -eu
           mkdir -p aur-build
           sed -e "s|__VERSION__|$VERSION|g" \
               -e "s|__SHA256__|$SHA256|g" \
+              -e "s|__GLIBC__|$GLIBC|g" \
               -e "s|__MAINTAINER_EMAIL__|$AUR_MAINTAINER_EMAIL|g" \
               packaging/PKGBUILD > aur-build/PKGBUILD
           cp packaging/littera-bin.install aur-build/littera-bin.install
@@ -141,6 +148,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: littera-bin-${{ needs.release.outputs.version }}
+          include-hidden-files: true
           path: |
             aur-build/PKGBUILD
             aur-build/.SRCINFO

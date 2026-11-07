@@ -401,9 +401,11 @@ The repository publishes itself; there is no manual tagging step.
   no per-tier x86 flags), strips the binary, and uploads two release assets:
   `littera-X.Y.Z-x86_64.tar.gz` (binary, desktop entry, hicolor icons, `LICENSE`) and its
   `.sha256`.
-- **AUR** (`release.yml`, job `aur`) — renders `packaging/PKGBUILD` with the version and
-  the archive checksum, regenerates `.SRCINFO` with `makepkg --printsrcinfo`, and pushes
-  to `ssh://aur@aur.archlinux.org/littera-bin.git`. It authenticates with the repository
+- **AUR** (`release.yml`, job `aur`) — renders `packaging/PKGBUILD` with the version, the
+  archive checksum and the glibc floor read from the built binary (`depends=('glibc>=…')`,
+  so pacman refuses an install on a system older than the build container), regenerates
+  `.SRCINFO` with `makepkg --printsrcinfo`, and pushes to
+  `ssh://aur@aur.archlinux.org/littera-bin.git`. It authenticates with the repository
   secret `AUR_SSH_KEY` (a passphrase-less ed25519 key whose public half is registered in
   the AUR account) and the repository variables `AUR_USERNAME` and `AUR_MAINTAINER_EMAIL`;
   the AUR host key is pinned in `.github/aur_known_hosts`.

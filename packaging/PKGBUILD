@@ -8,7 +8,7 @@ pkgdesc="Local voice dictation for Linux/Wayland (prebuilt binary)"
 arch=('x86_64')
 url="https://github.com/RouHim/littera"
 license=('MIT')
-depends=('alsa-lib' 'vulkan-icd-loader' 'blas' 'cblas')
+depends=('glibc>=__GLIBC__' 'alsa-lib' 'vulkan-icd-loader' 'blas' 'cblas')
 optdepends=(
     'xdg-desktop-portal: bind the hotkey through the GlobalShortcuts portal'
     'pipewire: microphone capture through the ALSA plugin'
