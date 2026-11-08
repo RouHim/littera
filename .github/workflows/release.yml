@@ -176,6 +176,15 @@ jobs:
             exit 1
           fi
           install -Dm644 .github/aur_known_hosts /root/.ssh/known_hosts
+          # Secrets cannot be read back after they are stored. The fingerprint
+          # is public information (it is printed by `ssh-keygen -lf` on the
+          # .pub too) and makes the stored key identifiable in the log.
+          ssh-keygen -lf /root/.ssh/aur
+          if ssh-keygen -y -P '' -f /root/.ssh/aur >/dev/null 2>&1; then
+            echo "stored key: no passphrase"
+          else
+            echo "::warning::The stored key is passphrase-protected; BatchMode cannot answer the prompt."
+          fi
           export GIT_SSH_COMMAND="ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes"
 
           if ! git clone --depth 1 ssh://aur@aur.archlinux.org/littera-bin.git aur 2>/tmp/clone.err; then
