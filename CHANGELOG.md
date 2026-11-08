@@ -1,3 +1,9 @@
+## [1.0.5](https://github.com/RouHim/littera/compare/v1.0.4...v1.0.5) (2026-11-08)
+
+### Bug Fixes
+
+* validate the AUR key before ssh and report the real failure ([d5389b8](https://github.com/RouHim/littera/commit/d5389b88b8c10932ccb18565546e3f228b89dac8))
+
 ## [1.0.4](https://github.com/RouHim/littera/compare/v1.0.3...v1.0.4) (2026-11-07)
 
 ### Bug Fixes
