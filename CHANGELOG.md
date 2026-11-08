@@ -1,3 +1,9 @@
+## [1.0.6](https://github.com/RouHim/littera/compare/v1.0.5...v1.0.6) (2026-11-08)
+
+### Bug Fixes
+
+* log the stored AUR key fingerprint ([dc9b9b3](https://github.com/RouHim/littera/commit/dc9b9b36487f4b9d6e67189a8d23a13449d33121))
+
 ## [1.0.5](https://github.com/RouHim/littera/compare/v1.0.4...v1.0.5) (2026-11-08)
 
 ### Bug Fixes
