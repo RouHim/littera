@@ -166,13 +166,25 @@ jobs:
             exit 1
           fi
           install -d -m 700 /root/.ssh
-          printf '%s\n' "$AUR_SSH_KEY" > /root/.ssh/aur
+          # Normalise paste artefacts (CRLF, leading/trailing blank lines) before
+          # ssh ever looks at the key.
+          printf '%s\n' "$AUR_SSH_KEY" | tr -d '\r' | awk 'NF' > /root/.ssh/aur
           chmod 600 /root/.ssh/aur
+          if ! grep -q '^-----BEGIN .*PRIVATE KEY-----$' /root/.ssh/aur \
+             || ! grep -q '^-----END .*PRIVATE KEY-----$' /root/.ssh/aur; then
+            echo "::error::AUR_SSH_KEY does not contain a private key. Store the private key file (starts with '-----BEGIN OPENSSH PRIVATE KEY-----'), never the .pub, as the repository secret under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
           install -Dm644 .github/aur_known_hosts /root/.ssh/known_hosts
-          export GIT_SSH_COMMAND="ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes"
+          export GIT_SSH_COMMAND="ssh -i /root/.ssh/aur -o IdentitiesOnly=yes -o BatchMode=yes -o UserKnownHostsFile=/root/.ssh/known_hosts -o StrictHostKeyChecking=yes"
 
-          if ! git clone --depth 1 ssh://aur@aur.archlinux.org/littera-bin.git aur; then
-            echo "::error::The AUR package littera-bin does not exist yet. Download the littera-bin-$VERSION artifact, submit its PKGBUILD once at https://aur.archlinux.org/submit, then re-run this job."
+          if ! git clone --depth 1 ssh://aur@aur.archlinux.org/littera-bin.git aur 2>/tmp/clone.err; then
+            cat /tmp/clone.err
+            if grep -qiE 'permission denied|invalid format|no such identity' /tmp/clone.err; then
+              echo "::error::AUR authentication failed. The public half of the AUR_SSH_KEY key must be registered at https://aur.archlinux.org/account/rouhim, and the secret must hold the passphrase-less private key."
+            else
+              echo "::error::The AUR package littera-bin does not exist yet. Download the littera-bin-$VERSION artifact, submit its PKGBUILD once at https://aur.archlinux.org/submit, then re-run this job."
+            fi
             exit 1
           fi
 
