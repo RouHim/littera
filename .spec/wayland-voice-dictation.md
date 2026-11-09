@@ -113,7 +113,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - The model file can disappear or be corrupted after a successful download; the next dictation then reports an actionable error and offers to download again.
 - The first download can be up to 751 MB on a nearly full disk; free space is checked before the download starts.
 - Voice-activity detection and endpointing are not part of the MVP; silence is handled only through the empty-transcript rule, and very short utterances under automatic language detection may be mislabelled, so an explicit language must always be selectable.
-- Terminals frequently require a different paste chord than `Ctrl+V`; the MVP uses `Ctrl+V` only and documents this as a known limitation — the transcript occupies the clipboard only until the restoration runs (FR-012), so a terminal cannot be served by the manual clipboard route; clipboard-only mode (no writing injection device) is the workaround.
+- Terminals frequently require a different paste chord than `Ctrl+V`; the MVP uses `Ctrl+V` only and documents this as a known limitation. Because the displaced selection is only restored after the focused application fetched the transcript (FR-012), a terminal that does not fetch it keeps the transcript on the clipboard, so the manual `Ctrl+Shift+V` route still works; clipboard-only mode (no writing injection device) remains the fallback.
 
 ## Research Notes
 

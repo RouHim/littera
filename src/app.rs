@@ -1150,7 +1150,7 @@ impl App {
                         }
                         Ok(inserter::InsertOutcome::CopiedOnly { reason, .. }) => {
                             self.set_notice(format!(
-                                "Auto-paste blocked: {reason} — transcript copied, press Ctrl+V"
+                                "Auto-paste did not complete: {reason} — transcript copied, press Ctrl+V"
                             ));
                         }
                         Err(error) => {
@@ -1211,7 +1211,7 @@ impl App {
             ),
             DictationState::Copied(reason) => (
                 overlay::OverlayState::Notice(format!(
-                    "Auto-paste blocked: {reason} — transcript copied, press Ctrl+V"
+                    "Auto-paste did not complete: {reason} — transcript copied, press Ctrl+V"
                 )),
                 Duration::ZERO,
                 0.0,

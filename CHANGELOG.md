@@ -1,3 +1,9 @@
+## [1.0.8](https://github.com/RouHim/littera/compare/v1.0.7...v1.0.8) (2026-11-09)
+
+### Bug Fixes
+
+* keep the paste chord clean and the transcript recoverable ([b169fc4](https://github.com/RouHim/littera/commit/b169fc4fe42a4dfb24983467ebf567b9d21a423f))
+
 ## [1.0.7](https://github.com/RouHim/littera/compare/v1.0.6...v1.0.7) (2026-11-09)
 
 ### Bug Fixes

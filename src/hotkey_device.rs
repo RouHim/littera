@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use evdev::{Device, EventType, KeyCode};
 
@@ -222,6 +222,43 @@ fn is_keyboard(device: &Device) -> bool {
     device
         .supported_keys()
         .is_some_and(|keys| keys.contains(KeyCode::KEY_A))
+}
+
+/// How long an insertion waits for physically held modifiers to clear before the paste chord.
+pub const MODIFIER_RELEASE_TIMEOUT: Duration = Duration::from_millis(300);
+
+/// Whether `code` is a modifier key whose held state would corrupt the paste chord.
+fn is_modifier(code: u16) -> bool {
+    [CTRL_CODES, SUPER_CODES, ALT_CODES, SHIFT_CODES]
+        .iter()
+        .flatten()
+        .any(|candidate| *candidate == code)
+}
+
+/// Wait until no modifier is physically held on a readable keyboard.
+///
+/// The compositor's seat modifier state is shared across devices: a modifier that is still held
+/// when the synthetic chord is emitted — the hotkey's own `ALT`, released only a few milliseconds
+/// after the engine final — turns `Ctrl+V` into `Ctrl+Alt+V`, which applications silently ignore.
+/// Polling the readable keyboards with `EVIOCGKEY` keeps the chord clean without depending on
+/// compositor state merging. Returns `false` when `timeout` elapsed with a modifier still down.
+pub fn wait_for_modifiers_released(timeout: Duration) -> bool {
+    let devices = keyboard_devices();
+    let deadline = Instant::now() + timeout;
+    loop {
+        let held = devices.iter().any(|(_, device)| {
+            device
+                .get_key_state()
+                .is_ok_and(|keys| keys.iter().any(|key| is_modifier(key.code())))
+        });
+        if !held {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
 }
 
 /// Devices whose reader threads are alive, plus those that ended with a read
@@ -476,6 +513,18 @@ mod tests {
 
     fn state_for(chord: &str) -> ChordState {
         ChordState::new(&parse_chord(chord).unwrap())
+    }
+
+    #[test]
+    fn every_modifier_key_is_recognised_and_letters_are_not() {
+        for code in [
+            LEFTCTRL, RIGHTCTRL, LEFTMETA, RIGHTMETA, LEFTALT, RIGHTALT, LEFTSHIFT, RIGHTSHIFT,
+        ] {
+            assert!(is_modifier(code), "{code} must count as a modifier");
+        }
+        for code in [KEY_A, KEY_B, KEY_SPACE, 19] {
+            assert!(!is_modifier(code), "{code} must not count as a modifier");
+        }
     }
 
     #[test]

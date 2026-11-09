@@ -29,7 +29,8 @@
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::sync::{
-    Mutex,
+    Arc, Condvar, Mutex,
+    atomic::{AtomicU64, Ordering},
     mpsc::{self, RecvTimeoutError, Sender},
 };
 use std::thread::JoinHandle;
@@ -140,6 +141,75 @@ enum Cmd {
     Snapshot { reply: Sender<Option<String>> },
     /// Stop the event loop so the clipboard thread can exit.
     Shutdown,
+}
+
+/// Whether a clipboard consumer read the selection a copy offered it (FR-012).
+///
+/// A paste is only proven by the consumer fetching the data: the chord is synthesized blind, so a
+/// window that lost focus (or is too slow to react) never fetches. The inserter restores the
+/// displaced selection only after the fetch; when nothing fetches, the transcript stays on the
+/// clipboard so a late or manual paste still finds it. The serial distinguishes copies, so a fetch
+/// of an older or already-restored selection cannot be mistaken for the transcript's.
+#[derive(Debug, Default)]
+struct FetchTracker {
+    /// Serial of the most recent copy.
+    current: AtomicU64,
+    /// Highest copy serial a consumer fetched.
+    fetched: Mutex<u64>,
+    /// Wakes [`FetchTicket::wait`] when a fetch arrives.
+    arrived: Condvar,
+}
+
+impl FetchTracker {
+    /// Start a new copy and return its serial.
+    fn begin(&self) -> u64 {
+        self.current.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    /// Serial of the copy currently on the clipboard.
+    fn current(&self) -> u64 {
+        self.current.load(Ordering::SeqCst)
+    }
+
+    /// Record that a consumer fetched the current selection.
+    fn fetched(&self) {
+        let serial = self.current();
+        let mut fetched = self
+            .fetched
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        if serial > *fetched {
+            *fetched = serial;
+        }
+        drop(fetched);
+        self.arrived.notify_all();
+    }
+
+    /// Wait until a consumer fetched copy `serial`; `false` when `timeout` elapsed first.
+    fn wait_for(&self, serial: u64, timeout: Duration) -> bool {
+        let fetched = self
+            .fetched
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let (fetched, _) = self
+            .arrived
+            .wait_timeout_while(fetched, timeout, |fetched| *fetched < serial)
+            .unwrap_or_else(|poison| poison.into_inner());
+        *fetched >= serial
+    }
+}
+
+/// A handle to one copy, giving the inserter proof that the focused application fetched it.
+pub struct FetchTicket {
+    serial: u64,
+    tracker: Arc<FetchTracker>,
+}
+
+impl FetchTicket {
+    /// Wait up to `timeout` for a consumer to fetch the copy; `false` on timeout.
+    pub fn wait(&self, timeout: Duration) -> bool {
+        self.tracker.wait_for(self.serial, timeout)
+    }
 }
 
 /// Which selection object a source belongs to.
@@ -308,6 +378,8 @@ struct Worker {
     announced_mimes: Vec<String>,
     /// Set once the clipboard thread's event loop exists, so it can be stopped again.
     stop_signal: Option<LoopSignal>,
+    /// Fetch proof for the current selection (FR-012).
+    fetch: Arc<FetchTracker>,
 }
 
 impl Worker {
@@ -315,6 +387,7 @@ impl Worker {
         connection: &Connection,
         queue_handle: QueueHandle<Worker>,
         selection: Selection,
+        fetch: Arc<FetchTracker>,
     ) -> Self {
         Worker {
             connection: connection.clone(),
@@ -328,6 +401,7 @@ impl Worker {
             foreign: None,
             announced_mimes: Vec::new(),
             stop_signal: None,
+            fetch,
         }
     }
 
@@ -542,19 +616,25 @@ fn read_foreign_offer(
 ///
 /// The consumer reads until EOF, so the fd has to be closed after the write — dropping the `File`
 /// does that. Transcripts are far smaller than a pipe buffer, so this cannot block for long.
-fn serve(text: &str, mime_type: &str, fd: OwnedFd) {
+fn serve(text: &str, mime_type: &str, fd: OwnedFd) -> bool {
     let mut pipe = std::fs::File::from(fd);
     match pipe.write_all(text.as_bytes()) {
-        Ok(()) => tracing::debug!(
-            mime_type = %mime_type,
-            bytes = text.len(),
-            "served the clipboard selection",
-        ),
-        Err(err) => tracing::warn!(
-            mime_type = %mime_type,
-            error = %err,
-            "the clipboard consumer stopped reading before the transcript was written",
-        ),
+        Ok(()) => {
+            tracing::debug!(
+                mime_type = %mime_type,
+                bytes = text.len(),
+                "served the clipboard selection",
+            );
+            true
+        }
+        Err(err) => {
+            tracing::warn!(
+                mime_type = %mime_type,
+                error = %err,
+                "the clipboard consumer stopped reading before the transcript was written",
+            );
+            false
+        }
     }
 }
 
@@ -607,7 +687,11 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Worker {
     ) {
         match event {
             // A consumer (the application the user pastes into) fetches the transcript.
-            wl_data_source::Event::Send { mime_type, fd } => serve(&state.text, &mime_type, fd),
+            wl_data_source::Event::Send { mime_type, fd } => {
+                if serve(&state.text, &mime_type, fd) {
+                    state.fetch.fetched();
+                }
+            }
             wl_data_source::Event::Cancelled => state.release_source(ControlKind::Core),
             _ => {}
         }
@@ -721,7 +805,9 @@ impl Dispatch<ZwlrDataControlSourceV1, ()> for Worker {
         match event {
             // A consumer (the application the user pastes into) fetches the transcript.
             zwlr_data_control_source_v1::Event::Send { mime_type, fd } => {
-                serve(&state.text, &mime_type, fd);
+                if serve(&state.text, &mime_type, fd) {
+                    state.fetch.fetched();
+                }
             }
             zwlr_data_control_source_v1::Event::Cancelled => {
                 state.release_source(ControlKind::Wlr);
@@ -767,7 +853,9 @@ impl Dispatch<ExtDataControlSourceV1, ()> for Worker {
     ) {
         match event {
             ext_data_control_source_v1::Event::Send { mime_type, fd } => {
-                serve(&state.text, &mime_type, fd);
+                if serve(&state.text, &mime_type, fd) {
+                    state.fetch.fetched();
+                }
             }
             ext_data_control_source_v1::Event::Cancelled => {
                 state.release_source(ControlKind::Ext);
@@ -781,6 +869,7 @@ impl Dispatch<ExtDataControlSourceV1, ()> for Worker {
 fn handle_wayland_command(event: ChannelEvent<Cmd>, _metadata: &mut (), worker: &mut Worker) {
     match event {
         ChannelEvent::Msg(Cmd::Copy { text, reply }) => {
+            worker.fetch.begin();
             worker.copy(text, Confirmation::Copy(reply));
         }
         ChannelEvent::Msg(Cmd::Restore { text, reply }) => worker.restore(text, reply),
@@ -841,6 +930,7 @@ fn run_wayland_worker(
 fn spawn_wayland(
     queue: EventQueue<Worker>,
     worker: Worker,
+    fetch: Arc<FetchTracker>,
     mechanism: &'static str,
 ) -> Result<Clipboard> {
     let (cmd, channel) = calloop::channel::channel::<Cmd>();
@@ -849,7 +939,7 @@ fn spawn_wayland(
         .name("littera-clipboard".to_owned())
         .spawn(move || run_wayland_worker(worker, queue, channel, ready))
         .context("cannot spawn the clipboard thread")?;
-    finish_start(started, thread, cmd, mechanism)
+    finish_start(started, thread, cmd, fetch, mechanism)
 }
 
 /// The X11 atoms Littera compares against or writes.
@@ -904,6 +994,8 @@ struct X11State {
     pending_snapshot: Option<PendingSnapshot>,
     /// Set once the thread's event loop exists, so it can be stopped again.
     stop_signal: Option<LoopSignal>,
+    /// Fetch proof for the current selection (FR-012).
+    fetch: Arc<FetchTracker>,
 }
 
 /// A read of the foreign selection that is waiting for the X server's `SelectionNotify`.
@@ -942,7 +1034,7 @@ impl SnapshotTarget {
 
 impl X11State {
     /// Connect to the X server and create the window that will own `CLIPBOARD`.
-    fn new() -> Result<Self> {
+    fn new(fetch: Arc<FetchTracker>) -> Result<Self> {
         let (connection, screen_number) = x11rb::connect(None).context(NO_X11)?;
         let root = connection
             .setup()
@@ -979,6 +1071,7 @@ impl X11State {
             text: String::new(),
             pending_snapshot: None,
             stop_signal: None,
+            fetch,
         })
     }
 
@@ -1182,6 +1275,11 @@ impl X11State {
             request.property
         };
         let served = self.write_target(request.requestor, property, request.target);
+        // Only the text transfer proves the transcript was fetched; a `TARGETS` query is not a
+        // paste and must not authorize the restore (FR-012).
+        if served && request.target != self.atoms.targets {
+            self.fetch.fetched();
+        }
         let notify = SelectionNotifyEvent {
             response_type: SELECTION_NOTIFY_EVENT,
             sequence: 0,
@@ -1266,7 +1364,10 @@ impl X11State {
 /// Serve one message from the X11 clipboard thread's channel.
 fn handle_x11_command(event: ChannelEvent<Cmd>, _metadata: &mut (), state: &mut X11State) {
     match event {
-        ChannelEvent::Msg(Cmd::Copy { text, reply }) => state.copy(text, reply),
+        ChannelEvent::Msg(Cmd::Copy { text, reply }) => {
+            state.fetch.begin();
+            state.copy(text, reply);
+        }
         ChannelEvent::Msg(Cmd::Restore { text, reply }) => state.restore(text, reply),
         ChannelEvent::Msg(Cmd::Snapshot { reply }) => state.snapshot(reply),
         ChannelEvent::Msg(Cmd::Shutdown) => state.shutdown(),
@@ -1320,15 +1421,15 @@ fn run_x11_worker(mut state: X11State, channel: Channel<Cmd>, ready: Sender<Resu
 }
 
 /// Own the X11 `CLIPBOARD` selection, which the Xwayland bridge mirrors into the Wayland clipboard.
-fn start_x11() -> Result<Clipboard> {
-    let state = X11State::new()?;
+fn start_x11(fetch: Arc<FetchTracker>) -> Result<Clipboard> {
+    let state = X11State::new(Arc::clone(&fetch))?;
     let (cmd, channel) = calloop::channel::channel::<Cmd>();
     let (ready, started) = mpsc::channel::<Result<()>>();
     let thread = std::thread::Builder::new()
         .name("littera-clipboard-x11".to_owned())
         .spawn(move || run_x11_worker(state, channel, ready))
         .context("cannot spawn the X11 clipboard thread")?;
-    finish_start(started, thread, cmd, MECHANISM_X11)
+    finish_start(started, thread, cmd, fetch, MECHANISM_X11)
 }
 
 /// Claim the selection and wait for the server to confirm the new owner.
@@ -1369,6 +1470,8 @@ pub struct Clipboard {
     thread: Option<JoinHandle<()>>,
     /// Which mechanism owns the selection (see the module documentation).
     mechanism: &'static str,
+    /// Fetch proof for the copy currently on the clipboard (FR-012).
+    fetch: Arc<FetchTracker>,
 }
 
 impl Clipboard {
@@ -1377,10 +1480,20 @@ impl Clipboard {
         self.mechanism
     }
 
+    /// A ticket for the copy currently on the clipboard, which the inserter uses to learn whether
+    /// the focused application actually fetched the transcript (FR-012).
+    pub fn fetch_ticket(&self) -> FetchTicket {
+        FetchTicket {
+            serial: self.fetch.current(),
+            tracker: Arc::clone(&self.fetch),
+        }
+    }
+
     /// Connect to the session and start the first clipboard mechanism that works.
     ///
     /// Fails only when no mechanism is available at all; the chosen one is logged at `info`.
     pub fn new() -> Result<Clipboard> {
+        let fetch = Arc::new(FetchTracker::default());
         // 1. and 2.: the data-control protocols own the selection without focus or a serial.
         let mut missing = NO_COMPOSITOR;
         if let Ok(connection) = Connection::connect_to_env() {
@@ -1389,7 +1502,7 @@ impl Clipboard {
                     let queue_handle = queue.handle();
                     let Ok(seat) = globals.bind::<wl_seat::WlSeat, _, _>(&queue_handle, 1..=1, ())
                     else {
-                        return x11_fallback(NO_SEAT);
+                        return x11_fallback(NO_SEAT, fetch);
                     };
 
                     let wlr_manager =
@@ -1401,8 +1514,9 @@ impl Clipboard {
                             device,
                             source: None,
                         };
-                        let worker = Worker::new(&connection, queue_handle, selection);
-                        return spawn_wayland(queue, worker, MECHANISM_WLR);
+                        let worker =
+                            Worker::new(&connection, queue_handle, selection, Arc::clone(&fetch));
+                        return spawn_wayland(queue, worker, fetch, MECHANISM_WLR);
                     }
 
                     let ext_manager =
@@ -1414,12 +1528,13 @@ impl Clipboard {
                             device,
                             source: None,
                         };
-                        let worker = Worker::new(&connection, queue_handle, selection);
-                        return spawn_wayland(queue, worker, MECHANISM_EXT);
+                        let worker =
+                            Worker::new(&connection, queue_handle, selection, Arc::clone(&fetch));
+                        return spawn_wayland(queue, worker, fetch, MECHANISM_EXT);
                     }
 
                     // 3.: the X11 bridge, which GNOME needs because it has no data-control protocol.
-                    match start_x11() {
+                    match start_x11(Arc::clone(&fetch)) {
                         Ok(clipboard) => return Ok(clipboard),
                         Err(err) => tracing::debug!(
                             error = %err,
@@ -1446,8 +1561,9 @@ impl Clipboard {
                          available, so the selection goes through wl_data_device.set_selection, \
                          which needs keyboard focus and may be ignored"
                     );
-                    let worker = Worker::new(&connection, queue_handle, selection);
-                    return spawn_wayland(queue, worker, MECHANISM_CORE);
+                    let worker =
+                        Worker::new(&connection, queue_handle, selection, Arc::clone(&fetch));
+                    return spawn_wayland(queue, worker, fetch, MECHANISM_CORE);
                 }
                 Err(err) => {
                     tracing::debug!(error = %err, "cannot enumerate wayland globals");
@@ -1459,7 +1575,7 @@ impl Clipboard {
         }
 
         // No usable Wayland session: the X11 bridge is the only mechanism left.
-        x11_fallback(missing)
+        x11_fallback(missing, fetch)
     }
 
     /// Put `text` on the clipboard as the current selection and keep it there.
@@ -1542,8 +1658,8 @@ impl Drop for Clipboard {
 }
 
 /// Fall back to the X11 `CLIPBOARD` selection, naming what was missing.
-fn x11_fallback(missing: &str) -> Result<Clipboard> {
-    start_x11().map_err(|err| anyhow!("cannot own the clipboard: {missing} and {err}"))
+fn x11_fallback(missing: &str, fetch: Arc<FetchTracker>) -> Result<Clipboard> {
+    start_x11(fetch).map_err(|err| anyhow!("cannot own the clipboard: {missing} and {err}"))
 }
 
 /// Wait for a clipboard thread to report that its event loop is running.
@@ -1551,6 +1667,7 @@ fn finish_start(
     started: mpsc::Receiver<Result<()>>,
     thread: JoinHandle<()>,
     cmd: ChannelSender<Cmd>,
+    fetch: Arc<FetchTracker>,
     mechanism: &'static str,
 ) -> Result<Clipboard> {
     match started.recv_timeout(START_TIMEOUT) {
@@ -1567,6 +1684,7 @@ fn finish_start(
         cmd: Mutex::new(cmd),
         thread: Some(thread),
         mechanism,
+        fetch,
     })
 }
 
@@ -1577,6 +1695,45 @@ pub(crate) static SELECTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new((
 
 #[cfg(test)]
 mod tests {
+    use super::{FetchTicket, FetchTracker};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    /// A ticket for the tracker's current copy.
+    fn ticket(tracker: &Arc<FetchTracker>) -> FetchTicket {
+        FetchTicket {
+            serial: tracker.current(),
+            tracker: Arc::clone(tracker),
+        }
+    }
+
+    #[test]
+    fn a_fetch_ticket_stays_unconfirmed_until_its_own_copy_is_fetched() {
+        let tracker = Arc::new(FetchTracker::default());
+        tracker.begin();
+        let first = ticket(&tracker);
+        assert!(!first.wait(Duration::ZERO));
+
+        tracker.fetched();
+        assert!(first.wait(Duration::ZERO));
+
+        // A new copy must not inherit the previous copy's fetch.
+        tracker.begin();
+        let second = ticket(&tracker);
+        assert!(!second.wait(Duration::ZERO));
+        tracker.fetched();
+        assert!(second.wait(Duration::ZERO));
+    }
+
+    #[test]
+    fn a_fetch_of_an_older_copy_does_not_confirm_the_newer_one() {
+        let tracker = Arc::new(FetchTracker::default());
+        tracker.begin();
+        tracker.fetched();
+        tracker.begin();
+        assert!(!ticket(&tracker).wait(Duration::ZERO));
+    }
+
     #[test]
     fn the_transcript_mime_is_preferred_when_reading_a_selection() {
         let offered = [
@@ -1629,6 +1786,21 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).into_owned()
     }
 
+    /// Wait until the clipboard worker adopted the foreign selection.
+    ///
+    /// The data-control device receives the current selection asynchronously after the connection
+    /// is created, so a snapshot issued immediately after [`Clipboard::new`] can answer before the
+    /// offer arrived.
+    fn snapshot_when_ready(clipboard: &crate::clipboard::Clipboard) -> Option<String> {
+        for _ in 0..200 {
+            if let Some(text) = clipboard.snapshot() {
+                return Some(text);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        None
+    }
+
     /// Spawn an independent selection owner (`wl-copy --foreground`), or `None` to skip the test
     /// when wl-clipboard is not installed.
     fn spawn_owner(text: &str) -> Option<std::process::Child> {
@@ -1658,7 +1830,7 @@ mod tests {
         wait_for_selection(fixture);
 
         let clipboard = crate::clipboard::Clipboard::new().expect("clipboard");
-        let snapshot = clipboard.snapshot();
+        let snapshot = snapshot_when_ready(&clipboard);
         // Reading is a request, not a takeover: the owner keeps serving afterwards.
         let still_there = read_selection();
 
@@ -1684,7 +1856,7 @@ mod tests {
         wait_for_selection(fixture);
 
         let clipboard = crate::clipboard::Clipboard::new().expect("clipboard");
-        let previous = clipboard.snapshot();
+        let previous = snapshot_when_ready(&clipboard);
         assert_eq!(
             previous.as_deref(),
             Some(fixture),
