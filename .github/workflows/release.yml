@@ -122,6 +122,12 @@ jobs:
     # `libc6 (>= …)` from the binary actually built here, so a newer image
     # would silently raise the .deb's floor.
     container: ubuntu:24.04
+    # Container jobs run `run:` steps through the image's /bin/sh, which is
+    # dash on ubuntu:24.04; dash rejects `set -o pipefail`. bash ships in the
+    # image, so pin every step in this job to it.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: System dependencies
         run: |
