@@ -743,6 +743,7 @@ impl Worker {
         let requested = ModelOptions {
             backend,
             device: None,
+            no_mmap: false,
         };
         let (model, fallback) = match Model::load_with(&self.path, &requested) {
             Ok(model) => (model, None),
@@ -757,6 +758,7 @@ impl Worker {
                     &ModelOptions {
                         backend: Backend::Cpu,
                         device: None,
+                        no_mmap: false,
                     },
                 )
                 .map_err(|err| {

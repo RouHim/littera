@@ -13,7 +13,7 @@ repository = "https://github.com/RouHim/littera"
 # linked in statically, no runtime dependency.
 mimalloc = "0.1"
 # In-process ASR engine (statically linked transcribe.cpp, Vulkan backend enabled).
-transcribe-cpp = { version = "0.4.0", default-features = false, features = ["vulkan"] }
+transcribe-cpp = { version = "0.4.1", default-features = false, features = ["vulkan"] }
 # GUI toolkit for the onboarding/settings windows. Defaults are off only to drop
 # two dead weights: `linux-theme-detection` (pulls the whole smol/async-io stack
 # for a theme the UI hardcodes to Tokyo Night) and `thread-pool` (iced's own
