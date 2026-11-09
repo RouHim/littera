@@ -1,3 +1,9 @@
+## [1.0.7](https://github.com/RouHim/littera/compare/v1.0.6...v1.0.7) (2026-11-09)
+
+### Bug Fixes
+
+* package the hicolor tree correctly and update to transcribe-cpp 0.4.1 ([55af596](https://github.com/RouHim/littera/commit/55af5965c1e26619f6a29b62c95e19eb93cf2184))
+
 ## [1.0.6](https://github.com/RouHim/littera/compare/v1.0.5...v1.0.6) (2026-11-08)
 
 ### Bug Fixes
