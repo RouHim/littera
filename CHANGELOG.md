@@ -1,3 +1,9 @@
+## [1.1.0](https://github.com/RouHim/littera/compare/v1.0.8...v1.1.0) (2026-11-09)
+
+### Features
+
+* **ui:** replace the nameplate world with the first reader ([f56b8d9](https://github.com/RouHim/littera/commit/f56b8d954b859ecbce5c0d69bf0914bbb5b1e357))
+
 ## [1.0.8](https://github.com/RouHim/littera/compare/v1.0.7...v1.0.8) (2026-11-09)
 
 ### Bug Fixes
