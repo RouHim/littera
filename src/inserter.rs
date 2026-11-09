@@ -6,15 +6,18 @@
 //!
 //! Ordering invariant: the transcript reaches the clipboard *before* the chord is emitted,
 //! otherwise the focused application pastes the previous clipboard content (FR-013). The text
-//! selection that paste displaces is read first and put back once the chord had its chance, so a
-//! dictation does not eat the user's clipboard (FR-012); a copy that arrives in between wins. When
-//! `/dev/uinput` is not writable the app degrades to copying only (Scenario 4.1, SC-005) and says
-//! so, naming the blocked path — in that mode the transcript *stays* on the clipboard, because
-//! it is the only way the text reaches the user.
+//! selection that paste displaces is read first and put back once the focused application fetched
+//! the transcript, so a dictation does not eat the user's clipboard (FR-012); a copy that arrives
+//! in between wins. When nothing fetches the transcript within the grace — the window lost focus,
+//! or the application is slower — the transcript stays on the clipboard and the outcome names it,
+//! so a late or manual paste still finds the text. When `/dev/uinput` is not writable the app
+//! degrades to copying only (Scenario 4.1, SC-005) and says so, naming the blocked path — in that
+//! mode the transcript *stays* on the clipboard, because it is the only way the text reaches the
+//! user.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use evdev::{AttributeSet, InputEvent, KeyCode, KeyEvent, uinput::VirtualDevice};
@@ -37,7 +40,9 @@ const PASTE_CHORD_HOLD: Duration = Duration::from_millis(25);
 ///
 /// The focused application fetches the transcript in reaction to the chord; this grace covers that
 /// fetch — including a slowed-down toolkit — before the old text returns. Restore too early and
-/// the paste would land on the old content instead of the transcript.
+/// the paste would land on the old content instead of the transcript. When nothing fetched the
+/// transcript within the grace, the restore does not run at all: the transcript stays on the
+/// clipboard so a late or manual paste still finds it.
 const CLIPBOARD_RESTORE_GRACE: Duration = Duration::from_millis(500);
 
 /// `input_event` values for a pressed and a released key.
@@ -55,13 +60,16 @@ const KEYS_FAILED: &str = "cannot advertise KEY_LEFTCTRL/KEY_V on /dev/uinput";
 const REGISTER_FAILED: &str = "cannot register the /dev/uinput virtual keyboard";
 /// `VirtualDevice::emit` failure: the chord could not be written to the kernel.
 const EMIT_FAILED: &str = "cannot write the Ctrl+V chord to the virtual keyboard";
+/// Reason reported when the focused application never fetched the transcript the chord offered it.
+const PASTE_NOT_FETCHED: &str = "the focused application did not fetch the transcript";
 
 /// What happened to a transcript handed to the focused application.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InsertOutcome {
     /// Clipboard updated and the paste chord emitted.
     Inserted,
-    /// Auto-paste is unavailable: the transcript is on the clipboard, `reason` says why.
+    /// The transcript is on the clipboard but no auto-paste was confirmed: auto-paste is
+    /// unavailable, or the focused application never fetched the text. `reason` says why.
     CopiedOnly {
         reason: String,
         blocked_path: Option<PathBuf>,
@@ -148,13 +156,46 @@ impl TextInserter for UinputInserter {
         let displaced = self.clipboard.snapshot();
         // Invariant: the selection must be ours before the chord is emitted (FR-013).
         self.clipboard.copy_text(text)?;
+        // The seat's modifier state is shared: the hotkey's own modifier is often still down
+        // when the engine final lands (the final can precede the key release by a few
+        // milliseconds), and a held `ALT` turns the chord into `Ctrl+Alt+V`, which applications
+        // ignore. Wait for the physical modifiers to clear before synthesizing the chord
+        // (FR-013, FR-012).
+        if !crate::hotkey_device::wait_for_modifiers_released(
+            crate::hotkey_device::MODIFIER_RELEASE_TIMEOUT,
+        ) {
+            tracing::warn!(
+                timeout_ms = crate::hotkey_device::MODIFIER_RELEASE_TIMEOUT.as_millis(),
+                "a modifier is still physically held; the paste chord may be modified",
+            );
+        }
+        // Proof that the focused application fetched the transcript; without it the restore must
+        // not run, or a paste that never happened loses the transcript (FR-012).
+        let fetched = self.clipboard.fetch_ticket();
         let mut device = self.device.lock().map_err(|_| anyhow::anyhow!(POISONED))?;
         device.emit(&paste_chord_press()).context(EMIT_FAILED)?;
         std::thread::sleep(PASTE_CHORD_HOLD);
         device.emit(&paste_chord_release()).context(EMIT_FAILED)?;
         drop(device);
-        // Only after the grace may the previous selection return (FR-012).
-        std::thread::sleep(CLIPBOARD_RESTORE_GRACE);
+        // The application reacts to the chord on its own event loop. Wait for its fetch rather
+        // than sleeping blindly: when nothing fetches, the transcript must stay (FR-012).
+        let after_release = Instant::now();
+        if !fetched.wait(CLIPBOARD_RESTORE_GRACE) {
+            // No consumer read the offered selection: the chord went nowhere (the window lost
+            // focus) or the application is slower than the grace. Keeping the transcript is the
+            // only safe outcome — the user can still paste it manually.
+            tracing::warn!(
+                chars = text.chars().count(),
+                "the focused application did not fetch the transcript; keeping it on the clipboard",
+            );
+            return Ok(InsertOutcome::CopiedOnly {
+                reason: PASTE_NOT_FETCHED.to_owned(),
+                blocked_path: None,
+            });
+        }
+        // The original grace still runs from the chord: a toolkit may ask for a follow-up mime
+        // right after the first fetch, and the transcript must not be gone by then.
+        std::thread::sleep(CLIPBOARD_RESTORE_GRACE.saturating_sub(after_release.elapsed()));
         restore_displaced(&self.clipboard, displaced);
         tracing::info!(
             chars = text.chars().count(),
