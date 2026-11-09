@@ -1,26 +1,264 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-17T00:00:00Z",
+  "generatedAt": "2026-11-09T00:00:00Z",
   "title": "Design System: Littera",
   "extensions": {
     "colorMeta": {
-      "enamel": { "role": "neutral", "displayName": "Enamel", "canonical": "#22282E", "tonalRamp": ["#000C11", "#20262C", "#3C4349", "#5B6269", "#7C838B", "#9EA6AE", "#C2CAD2", "#E7F0F8"] },
-      "plate": { "role": "neutral", "displayName": "Plate", "canonical": "#262D34", "tonalRamp": ["#000C12", "#1F262D", "#3B434A", "#5A626A", "#7B838C", "#9DA6AF", "#C1CAD3", "#E6F0F9"] },
-      "well": { "role": "neutral", "displayName": "Well", "canonical": "#1D2329", "tonalRamp": ["#000C11", "#20262C", "#3C4349", "#5B6269", "#7C838B", "#9EA6AE", "#C2CAD2", "#E7F0F8"] },
-      "silk": { "role": "neutral", "displayName": "Silk", "canonical": "#E9EBE4", "tonalRamp": ["#0B0C00", "#242621", "#41433D", "#60625C", "#81837D", "#A4A69F", "#C8CAC3", "#EDEFE8"] },
-      "muted": { "role": "neutral", "displayName": "Muted Steel", "canonical": "#9AA39B", "tonalRamp": ["#000D00", "#202721", "#3D443E", "#5C645C", "#7C857D", "#9FA8A0", "#C3CCC4", "#E8F2E9"] },
-      "signal": { "role": "primary", "displayName": "Signal Amber", "canonical": "#E3B23C", "tonalRamp": ["#230000", "#421700", "#633700", "#855800", "#A87A00", "#CD9D1C", "#F3C14E", "#FFE777"] },
-      "signal-hover": { "role": "primary", "displayName": "Signal Amber, Shallow", "canonical": "#EDC158", "tonalRamp": ["#210000", "#401A00", "#603900", "#825900", "#A57B00", "#C99E30", "#EFC35A", "#FFE881"] },
-      "signal-pressed": { "role": "primary", "displayName": "Signal Amber, Deep", "canonical": "#C99A2E", "tonalRamp": ["#220000", "#421800", "#623700", "#845800", "#A77A00", "#CC9D32", "#F2C15B", "#FFE782"] },
-      "stop": { "role": "primary", "displayName": "Stop Red", "canonical": "#C14B3A", "tonalRamp": ["#350000", "#5B0000", "#810000", "#A73324", "#CF5745", "#F77B67", "#FFA08A", "#FFC5AE"] },
-      "fault": { "role": "primary", "displayName": "Fault Ink", "canonical": "#E07361", "tonalRamp": ["#320000", "#560000", "#7B1400", "#A13A2C", "#C85D4D", "#EF816E", "#FFA591", "#FFCAB5"] },
-      "run": { "role": "primary", "displayName": "Run Green", "canonical": "#6FAF74", "tonalRamp": ["#001400", "#003100", "#0B501A", "#32713A", "#54945A", "#77B77C", "#9BDC9F", "#BFFFC3"] }
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "#FBF7EE",
+        "tonalRamp": [
+          "#464543",
+          "#83807C",
+          "#BFBCB5",
+          "#E7E3DB",
+          "#FBF7EE",
+          "#FCF8F0",
+          "#FCF9F3",
+          "#FDFBF6"
+        ]
+      },
+      "sheet": {
+        "role": "neutral",
+        "displayName": "Sheet",
+        "canonical": "#FFFDF6",
+        "tonalRamp": [
+          "#474745",
+          "#858480",
+          "#C2C0BB",
+          "#EBE9E2",
+          "#FFFDF6",
+          "#FFFDF7",
+          "#FFFEF9",
+          "#FFFEFA"
+        ]
+      },
+      "well": {
+        "role": "neutral",
+        "displayName": "Well",
+        "canonical": "#F1EADA",
+        "tonalRamp": [
+          "#43423D",
+          "#7D7A71",
+          "#B7B2A6",
+          "#DED7C9",
+          "#F1EADA",
+          "#F3EDDF",
+          "#F5F0E5",
+          "#F8F4EC"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Rule",
+        "canonical": "#E7DECB",
+        "tonalRamp": [
+          "#413E39",
+          "#78736A",
+          "#B0A99A",
+          "#D5CCBB",
+          "#E7DECB",
+          "#EAE3D2",
+          "#EEE8DB",
+          "#F3EEE4"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Rule Strong",
+        "canonical": "#C9BCA3",
+        "tonalRamp": [
+          "#38352E",
+          "#696255",
+          "#998F7C",
+          "#B9AD96",
+          "#C9BCA3",
+          "#D1C5B0",
+          "#D9D0BF",
+          "#E3DCCF"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Ink",
+        "canonical": "#2C2721",
+        "tonalRamp": [
+          "#0C0B09",
+          "#171411",
+          "#211E19",
+          "#28241E",
+          "#2C2721",
+          "#4A4540",
+          "#6B6864",
+          "#918F8C"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted",
+        "canonical": "#665E52",
+        "tonalRamp": [
+          "#1D1A17",
+          "#35312B",
+          "#4E473E",
+          "#5E564B",
+          "#665E52",
+          "#7B756A",
+          "#948E86",
+          "#AFABA5"
+        ]
+      },
+      "crayon": {
+        "role": "primary",
+        "displayName": "Crayon",
+        "canonical": "#C0442F",
+        "tonalRamp": [
+          "#36130D",
+          "#642318",
+          "#923424",
+          "#B13F2B",
+          "#C0442F",
+          "#C95E4C",
+          "#D37C6D",
+          "#DE9E93"
+        ]
+      },
+      "crayon-hover": {
+        "role": "primary",
+        "displayName": "Crayon Hover",
+        "canonical": "#AE3A25",
+        "tonalRamp": [
+          "#31100A",
+          "#5A1E13",
+          "#842C1C",
+          "#A03522",
+          "#AE3A25",
+          "#B95644",
+          "#C67566",
+          "#D5998E"
+        ]
+      },
+      "crayon-pressed": {
+        "role": "primary",
+        "displayName": "Crayon Pressed",
+        "canonical": "#9C331F",
+        "tonalRamp": [
+          "#2C0E09",
+          "#511B10",
+          "#772718",
+          "#902F1D",
+          "#9C331F",
+          "#AA503E",
+          "#BA7062",
+          "#CC958B"
+        ]
+      },
+      "paper-on-crayon": {
+        "role": "neutral",
+        "displayName": "Paper on Crayon",
+        "canonical": "#FFF9F0",
+        "tonalRamp": [
+          "#474643",
+          "#85817D",
+          "#C2BDB6",
+          "#EBE5DD",
+          "#FFF9F0",
+          "#FFFAF2",
+          "#FFFBF4",
+          "#FFFCF7"
+        ]
+      },
+      "done": {
+        "role": "success",
+        "displayName": "Done",
+        "canonical": "#2E6B45",
+        "tonalRamp": [
+          "#0D1E13",
+          "#183824",
+          "#235134",
+          "#2A623F",
+          "#2E6B45",
+          "#4B805F",
+          "#6D977D",
+          "#92B29E"
+        ]
+      },
+      "caution": {
+        "role": "warning",
+        "displayName": "Caution",
+        "canonical": "#8A5A12",
+        "tonalRamp": [
+          "#271905",
+          "#482F09",
+          "#69440E",
+          "#7F5311",
+          "#8A5A12",
+          "#9A7133",
+          "#AD8C59",
+          "#C2A984"
+        ]
+      },
+      "failure": {
+        "role": "danger",
+        "displayName": "Failure",
+        "canonical": "#8E2A20",
+        "tonalRamp": [
+          "#280C09",
+          "#4A1611",
+          "#6C2018",
+          "#83271D",
+          "#8E2A20",
+          "#9E483F",
+          "#B06A63",
+          "#C4908B"
+        ]
+      },
+      "failure-fill": {
+        "role": "danger",
+        "displayName": "Failure Fill",
+        "canonical": "#A62B21",
+        "tonalRamp": [
+          "#2E0C09",
+          "#561611",
+          "#7E2119",
+          "#99281E",
+          "#A62B21",
+          "#B24940",
+          "#C16B64",
+          "#D1918C"
+        ]
+      }
     },
     "typographyMeta": {
-      "legend": { "displayName": "Legend", "purpose": "Section headings, upper-case, condensed." },
-      "key": { "displayName": "Key", "purpose": "Field keys, state captions and stamped controls." },
-      "body": { "displayName": "Body", "purpose": "Values, ledes and sentences." },
-      "identifier": { "displayName": "Identifier", "purpose": "Paths, sizes, chords, percentages." }
+      "title": {
+        "displayName": "Title",
+        "purpose": "The surface title; bold 26 px, sentence case."
+      },
+      "heading": {
+        "displayName": "Heading",
+        "purpose": "A section name; bold 20 px."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "The readiness sentence and every key chord; bold 19 px."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Values, explanations, placard text; 17 px at 1.5 line height."
+      },
+      "control": {
+        "displayName": "Control",
+        "purpose": "Button and chip labels; bold 15 px."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Field keys, metadata and hints; 14 px."
+      },
+      "data": {
+        "displayName": "Data",
+        "purpose": "Sizes, paths, digests and commands in the system monospace."
+      }
     },
     "shadows": [],
     "motion": []
@@ -30,91 +268,96 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Stamped signal frame at rest; fills on hover. Used for Download, Bind, Finish.",
-      "html": "<button class=\"ds-btn-primary\">DOWNLOAD</button>",
-      "css": ".ds-btn-primary { background: transparent; color: #E3B23C; border: 1px solid #E3B23C; border-radius: 0; padding: 8px 16px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: none; } .ds-btn-primary:hover { background: #EDC158; color: #22282E; } .ds-btn-primary:active { background: #C99A2E; color: #22282E; }"
+      "description": "The one primary action of a view: Download, Next, Finish, Change keys, Re-check.",
+      "html": "<button class=\"ds-btn-primary\">Download</button>",
+      "css": ".ds-btn-primary { background: #C0442F; color: #FFF9F0; border: none; border-radius: 10px; padding: 10px 18px; font-family: 'Atkinson Hyperlegible', sans-serif; font-weight: 700; font-size: 15px; cursor: pointer; } .ds-btn-primary:hover { background: #AE3A25; } .ds-btn-primary:active { background: #9C331F; } .ds-btn-primary:disabled { background: rgba(44,39,33,0.10); color: #665E52; cursor: default; }"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "Silk frame on steel; a 7% silk wash on hover. Used for Verify, Show details, Back.",
-      "html": "<button class=\"ds-btn-secondary\">VERIFY</button>",
-      "css": ".ds-btn-secondary { background: transparent; color: #E9EBE4; border: 1px solid rgba(233,235,228,0.55); border-radius: 0; padding: 8px 16px; font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; cursor: pointer; transition: none; } .ds-btn-secondary:hover { background: rgba(233,235,228,0.07); }"
+      "description": "Every action that is not the view's primary one, and every row action that is not the live row's.",
+      "html": "<button class=\"ds-btn-secondary\">Details</button>",
+      "css": ".ds-btn-secondary { background: #FFFDF6; color: #2C2721; border: 1px solid #C9BCA3; border-radius: 10px; padding: 10px 18px; font-family: 'Atkinson Hyperlegible', sans-serif; font-weight: 700; font-size: 15px; cursor: pointer; } .ds-btn-secondary:hover { background: #F1EADA; } .ds-btn-secondary:disabled { color: #665E52; border-color: #E7DECB; cursor: default; }"
     },
     {
-      "name": "Capability Plate",
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip-active",
+      "description": "Quant and sort chips. The selected chip is crayon ink on a sheet, never a filled primary button.",
+      "html": "<button class=\"ds-chip is-selected\">Q8_0</button>",
+      "css": ".ds-chip { background: #FFFDF6; color: #2C2721; border: 1px solid #C9BCA3; border-radius: 10px; padding: 2px 8px; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 14px; font-weight: 400; cursor: pointer; } .ds-chip.is-selected { color: #C0442F; border-color: #C0442F; }"
+    },
+    {
+      "name": "Sheet",
       "kind": "card",
-      "refersTo": "plate",
-      "description": "The one plate per surface: double frame, a 2x2 field grid with one state lamp each.",
-      "html": "<div class=\"ds-plate\"><div class=\"ds-plate-inner\"><div class=\"ds-plate-grid\"><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">MODEL</span><span class=\"ds-value\">Nemotron 3.5 ASR Streaming 0.6B — Q8_0</span></div><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">DEVICE</span><span class=\"ds-value mono\">System default</span></div><div class=\"ds-field\"><span class=\"ds-lamp off\"></span><span class=\"ds-key\">BACKEND</span><span class=\"ds-value mono\">Loading…</span></div><div class=\"ds-field\"><span class=\"ds-lamp run\"></span><span class=\"ds-key\">HOTKEY</span><span class=\"ds-value mono\">CTRL+SUPER · device listener</span></div></div></div></div>",
-      "css": ".ds-plate { background: #262D34; border: 1px solid rgba(233,235,228,0.55); padding: 4px; } .ds-plate-inner { border: 1px solid rgba(233,235,228,0.26); padding: 12px; } .ds-plate-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; } .ds-field { display: flex; align-items: center; gap: 8px; border-bottom: 1px solid rgba(233,235,228,0.16); padding: 4px 0; } .ds-key { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #9AA39B; width: 96px; } .ds-value { font-family: 'Inter', sans-serif; font-size: 15px; color: #E9EBE4; } .ds-value.mono { font-family: ui-monospace, monospace; font-size: 13px; } .ds-lamp { width: 7px; height: 7px; border-radius: 50%; background: #6FAF74; } .ds-lamp.off { background: none; border: 1px solid #9AA39B; }"
+      "refersTo": "sheet",
+      "description": "The grouped surface: capability plate, model row, a settings card. The live sheet is the same fill behind a 1.5px crayon frame.",
+      "html": "<section class=\"ds-sheet is-live\">Model facts</section>",
+      "css": ".ds-sheet { background: #FFFDF6; color: #2C2721; border: 1px solid #E7DECB; border-radius: 14px; padding: 16px; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 17px; } .ds-sheet.is-live { border: 1.5px solid #C0442F; }"
     },
     {
-      "name": "Placard, Warning",
-      "kind": "custom",
-      "refersTo": "placard-warning",
-      "description": "The alarm shape: full signal frame, 10% wash, signal ink. No edge stripe, no icon.",
-      "html": "<div class=\"ds-placard ds-warn\">The keystroke device /dev/uinput is not writable — the transcript goes to the clipboard only.</div>",
-      "css": ".ds-placard { border-radius: 0; padding: 12px; font-family: 'Inter', sans-serif; font-size: 15px; } .ds-placard.ds-warn { background: rgba(227,178,60,0.10); border: 1px solid rgba(227,178,60,0.70); color: #E3B23C; }"
-    },
-    {
-      "name": "Placard, Failure",
-      "kind": "custom",
-      "refersTo": "placard-failure",
-      "description": "Failures frame in Stop Red while their text stays readable in Fault Ink.",
-      "html": "<div class=\"ds-placard ds-fail\">Load failed — the partial download is kept and resumed.</div>",
-      "css": ".ds-placard { border-radius: 0; padding: 12px; font-family: 'Inter', sans-serif; font-size: 15px; } .ds-placard.ds-fail { background: rgba(224,115,97,0.10); border: 1px solid rgba(193,75,58,0.70); color: #E07361; }"
+      "name": "Inset",
+      "kind": "card",
+      "refers_to": "inset",
+      "description": "A grouped block inside a sheet: a hairline and 12px padding, no fill. Never a card in a card.",
+      "html": "<div class=\"ds-inset\">Not downloaded yet \u2014 751 MB to download</div>",
+      "css": ".ds-inset { border: 1px solid #E7DECB; border-radius: 14px; padding: 12px; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 17px; }"
     },
     {
       "name": "Field",
       "kind": "input",
-      "refersTo": "field",
-      "description": "Recessed well with a hairline frame; the frame turns signal on focus.",
-      "html": "<input class=\"ds-field-input\" placeholder=\"Search models…\">",
-      "css": ".ds-field-input { background: #1D2329; color: #E9EBE4; border: 1px solid rgba(233,235,228,0.26); border-radius: 0; padding: 8px 10px; font-family: 'Inter', sans-serif; font-size: 15px; outline: none; } .ds-field-input::placeholder { color: #9AA39B; } .ds-field-input:hover { border-color: rgba(233,235,228,0.55); } .ds-field-input:focus { border-color: #E3B23C; }"
+      "refers_to": "field",
+      "description": "Search field and pick lists. The frame turns crayon while focused.",
+      "html": "<input class=\"ds-field\" placeholder=\"Search models\u2026\">",
+      "css": ".ds-field { background: #F1EADA; color: #2C2721; border: 1px solid #E7DECB; border-radius: 10px; padding: 10px 18px; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 17px; } .ds-field:focus { border-color: #C0442F; outline: none; } .ds-field::placeholder { color: #665E52; }"
+    },
+    {
+      "name": "Placard",
+      "kind": "alert",
+      "refers_to": "placard",
+      "description": "Warnings and failures: the tone's wash at 8%, its frame at 32%, its ink. Always fully framed.",
+      "html": "<p class=\"ds-placard is-danger\">/dev/uinput (Permission denied (os error 13))</p>",
+      "css": ".ds-placard { border-radius: 10px; padding: 12px 16px; font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 17px; line-height: 1.5; } .ds-placard.is-danger { background: rgba(166,43,33,0.08); border: 1px solid rgba(166,43,33,0.32); color: #8E2A20; } .ds-placard.is-warning { background: rgba(138,90,18,0.08); border: 1px solid rgba(138,90,18,0.32); color: #8A5A12; } .ds-placard.is-success { background: rgba(46,107,69,0.08); border: 1px solid rgba(46,107,69,0.32); color: #2E6B45; }"
     },
     {
       "name": "Overlay Pill",
-      "kind": "custom",
-      "refersTo": "overlay-pill",
-      "description": "The one floating surface: 90% plate fill, 16px radius, no frame and no shadow — status legend, two-line transcript, level bar.",
-      "html": "<div class=\"ds-pill\"><span class=\"ds-pill-status\">TRANSCRIBING…</span><span class=\"ds-pill-text\">the quick brown fox jumps over the lazy dog and keeps dictating into the focused window</span><span class=\"ds-pill-level\"></span></div>",
-      "css": ".ds-pill { width: 560px; height: 112px; box-sizing: border-box; border-radius: 16px; background: rgba(38,45,52,0.90); padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 6px; font-family: 'Inter', sans-serif; } .ds-pill-status { font-family: 'Barlow Condensed', sans-serif; font-weight: 600; font-size: 15px; line-height: 18px; letter-spacing: 0.06em; text-transform: uppercase; color: #9AA39B; } .ds-pill-status.is-error { color: #E07361; } .ds-pill-text { font-size: 17px; line-height: 20px; color: #E9EBE4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; } .ds-pill-level { margin-top: auto; width: 62%; height: 8px; border-radius: 4px; background: #E3B23C; }"
+      "kind": "card",
+      "refers_to": "overlay-pill",
+      "description": "The floating dictation card: paper at 96 %, one hairline, a bold muted status line, the transcript, and a 6px crayon level bar.",
+      "html": "<div class=\"ds-overlay\"><strong>Listening\u2026 0:07</strong><p>Der Text erscheint direkt am Cursor.</p><i></i></div>",
+      "css": ".ds-overlay { width: 560px; background: rgba(255,253,246,0.96); border: 1px solid #E7DECB; border-radius: 16px; padding: 16px 20px 20px; color: #2C2721; font-family: 'Atkinson Hyperlegible', sans-serif; } .ds-overlay strong { color: #665E52; font-size: 15px; } .ds-overlay p { font-size: 17px; margin: 6px 0 14px; } .ds-overlay i { display: block; width: 60%; height: 6px; border-radius: 3px; background: #C0442F; }"
     }
   ],
   "narrative": {
-    "northStar": "The Nameplate",
-    "overview": "Littera's windows are the machine talking about itself. The Settings screen opens on a single stamped plate — model, backend, device, hotkey, one state lamp each — and then disciplined rows of field facts below it. Legends are condensed and capitalised as if silk-screened onto enamelled steel; values are set plainly; identifiers, paths and commands are monospace because they are data. Alarms are placards: a full frame, the tone's wash, the tone's ink. Nothing is rounded, nothing floats, nothing glows.\n\nThe use scene fixes the light: someone at a desk, often at night, screen-lit, opening Settings deliberately mid-work to change one setting and close it again; the overlay pill floats over any content at any hour. That forces a dark steel ground with one signal colour, and it forces restraint — the app is a background instrument, not a destination.\n\nThe system is deliberately sparse where it can be and explicit where it must be. Every capability the platform withholds has a surface: a lamp dims, a placard turns on, a blocked path names its fix. The world carries colour as information — the signal yellow means \"actable or attention\", the stop red means failure, the run green means a verified machine state — and nothing else is coloured.",
+    "northStar": "The First Reader",
+    "overview": "Littera's windows explain themselves the way a good reading book does: one plain sentence at a time, generous margins, one crayon colour marking where you are. Settings opens on a sentence that answers the only question a person has when they open it \u2014 can I dictate right now? \u2014 then states four machine facts as label/value rows and gets out of the way.\n\nThe use scene fixes the light: a desk, a bright room or a dim one, the window open for the fifteen seconds it takes to change one setting. Paper, not steel; ink, not silk-screen. Nothing is condensed, stamped or upper-case: the world it replaced read as lab equipment, and this one reads as a page.",
     "keyCharacteristics": [
-      "One capability plate per surface, framed twice, never repeated.",
-      "Stamped square controls; hover fills, nothing tweens.",
-      "Legends in condensed caps; values in Inter; identifiers in monospace.",
-      "Lamps and placards as the only state vocabulary.",
-      "Flat steel: no shadows, no gradients, no rounded cards."
+      "Warm paper ground, white sheets, one crayon accent.",
+      "One typeface (Atkinson Hyperlegible) in two weights; hierarchy by weight and space, never a fourth size.",
+      "Sentence case everywhere; monospace only for real data.",
+      "Every state says its word; colour is the second signal.",
+      "Flat and softly rounded: 10px controls, 14px sheets; the only shadow is an open pick-list menu."
     ],
     "rules": [
-      { "name": "The Signal-Only Rule", "body": "Exactly one saturated colour exists. It marks what can be acted on and what demands attention; if an element is neither, it is silk, muted steel or nothing.", "section": "colors" },
-      { "name": "The Legible-Failure Rule", "body": "Failure text always uses Fault Ink, never Stop Red; Stop Red only frames. A failure must stay readable before it may look severe.", "section": "colors" },
-      { "name": "The Stencil-Caps Rule", "body": "Anything that labels, names a section, or reports a state is upper-case in the legend face. Anything that is a sentence stays in Inter at sentence case.", "section": "typography" },
-      { "name": "The Data-Is-Mono Rule", "body": "Monospace is reserved for identifiers, measurements and commands; it is never a costume for technical tone.", "section": "typography" },
-      { "name": "The Flat-Steel Rule", "body": "No shadow, no blur, no gradient. A surface is defined by its fill tone and its frame; if that is not enough to separate it, the tone step is wrong.", "section": "elevation" },
-      { "name": "The Square-Stamp Rule", "body": "Radius 0 is the default for anything that sits in a panel. Anything rounded must be small, floating or transient; if it is none of those, it is a defect.", "section": "shapes" }
+      "The One Crayon Rule: one saturated accent, used only for the live thing and the primary action.",
+      "The Word-Before-Colour Rule: name a state in words, then tone it.",
+      "The Sentence-Case Rule: nothing is set in upper case.",
+      "The No-Card-Inside-A-Card Rule: a block inside a sheet is an inset, not a card.",
+      "The Weight-Not-Size Rule: new emphasis is weight or space, never a bigger step."
     ],
     "dos": [
-      "Do state every capability the machine owns in the plate, with a lamp whose colour is the truth of that moment.",
-      "Do stamp controls: legend caps, square frames, hover fills.",
-      "Do keep failure text in Fault Ink and reserve Stop Red for frames.",
-      "Do set keys, identifiers and percentages in their own faces — legend caps and mono — instead of styling prose.",
-      "Do leave whitespace between a state and its action: the caption left, the button right."
+      "Open every surface with one plain sentence that answers why it is open.",
+      "State a state in words and then tone it.",
+      "Keep one primary action per view.",
+      "Leave more space above a heading than below it."
     ],
     "donts": [
-      "Don't round a plate, a field, a button or a placard — radius 0 is the contract.",
-      "Don't introduce a second saturated colour, a gradient, a glow or a shadow.",
-      "Don't use glyphs or emoji as icons; a control names its action in words (\"SHOW DETAILS\"), and state markers are stencil words (\"OK\", \"FAIL\").",
-      "Don't stripe an alert; a placard carries its meaning in its frame and wash.",
-      "Don't let a disabled control look interactive, and never dim a lamp to hide a state — draw it hollow.",
-      "Don't run monospace outside data, and never upper-case prose."
+      "Don't use upper case or a condensed face.",
+      "Don't add a second accent colour, a gradient, a glow or a shadow on a sheet.",
+      "Don't nest a card inside a card.",
+      "Don't hide an action's word behind a tooltip.",
+      "Don't reach for a bigger type size to add emphasis."
     ]
   }
 }

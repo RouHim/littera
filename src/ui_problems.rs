@@ -11,8 +11,7 @@ use crate::ui::{self, Message, metrics, style};
 /// The window's heading and lead line, kept as constants like every other
 /// user-visible string.
 const HEADING: &str = "Startup problems";
-const LEAD: &str =
-    "Dictation stays limited until these are fixed; each check names the exact command.";
+const LEAD: &str = "Dictation stays limited until these are fixed; each check names what to change, with the exact command where one exists.";
 
 /// Actions the problem notice can produce.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

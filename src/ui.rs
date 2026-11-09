@@ -22,15 +22,15 @@ use crate::models;
 /// both the tray pixmap and the window icon (FR-005).
 pub const ICON_PNG: &[u8] = include_bytes!("../assets/icon/hicolor/256x256/apps/littera.png");
 
-/// The embedded value face — Inter Regular (SIL OFL 1.1, see
-/// `assets/Inter-LICENSE.txt`). Registered with iced in `run_daemon`; the
-/// overlay rasteriser embeds the same file for its transcript line.
-pub const FONT_VALUE: &[u8] = include_bytes!("../assets/Inter-Regular.ttf");
+/// The embedded text face, regular weight — Atkinson Hyperlegible (SIL OFL 1.1,
+/// see `assets/AtkinsonHyperlegible-LICENSE.txt`), drawn by the Braille
+/// Institute so that letters stay distinguishable at small sizes. Registered
+/// with iced in `run_daemon`; the overlay rasteriser embeds the same file.
+pub const FONT_REGULAR: &[u8] = include_bytes!("../assets/AtkinsonHyperlegible-Regular.ttf");
 
-/// The embedded legend face — Barlow Condensed SemiBold (SIL OFL 1.1, see
-/// `assets/BarlowCondensed-LICENSE.txt`). Every legend, key and heading of the
-/// nameplate vocabulary is set in it, upper-case.
-pub const FONT_LEGEND: &[u8] = include_bytes!("../assets/BarlowCondensed-SemiBold.ttf");
+/// The embedded text face, bold weight. The only second weight the interface
+/// uses: hierarchy comes from weight and space, never from a bigger ladder.
+pub const FONT_BOLD: &[u8] = include_bytes!("../assets/AtkinsonHyperlegible-Bold.ttf");
 
 /// Decode a PNG into straight (non-premultiplied) RGBA8 plus its dimensions.
 ///
@@ -87,53 +87,52 @@ pub enum Surface {
     Problems,
 }
 
-/// The app palette: one enamelled-steel foundation for both windows and the
-/// overlay indicator (`overlay_render` reads the same constants through
+/// The app palette: one warm-paper foundation for both windows and the overlay
+/// indicator (`overlay_render` reads the same constants through
 /// [`palette::rgb8`]).
 ///
 /// The six roles map onto [`iced::theme::Palette`] (`background`, `text`,
-/// `primary`, `success`, `warning`, `danger`); the plate, well and borders are
-/// the surfaces the views build with. Contrast on [`palette::BACKGROUND`]:
-/// text 12.4:1, muted 5.7:1, signal 7.6:1, error 4.8:1, success 5.7:1 — all
-/// above WCAG AA, and `ON_ACCENT` (7.6:1) is the only ink allowed on a signal
-/// fill.
+/// `primary`, `success`, `warning`, `danger`); the sheet, well and rules are the
+/// surfaces the views build with. Contrast on [`palette::BACKGROUND`]: ink
+/// 13.8:1, muted 6.0:1, accent 4.8:1, warning 5.5:1, success 5.9:1, failure
+/// 7.9:1 — all above WCAG AA, and `ON_ACCENT` (4.9:1) is the only ink allowed on
+/// an accent fill.
 pub mod palette {
     use iced::Color;
 
     // Surfaces.
-    /// Window background: flat enamelled steel.
-    pub const BACKGROUND: Color = Color::from_rgb8(0x22, 0x28, 0x2E);
-    /// The plate and field-row fill, one step lifted from the ground.
-    pub const SURFACE: Color = Color::from_rgb8(0x26, 0x2D, 0x34);
-    /// Recessed interiors: search fields and pickers.
-    pub const WELL: Color = Color::from_rgb8(0x1D, 0x23, 0x29);
-    /// Hover fills, as a wash of silk.
-    pub const SURFACE_HOVER: Color = alpha(TEXT, 0.07);
-    /// Hairline borders: the field grid.
-    pub const BORDER: Color = alpha(TEXT, 0.26);
-    /// Borders that carry state (hover, selection, the plate's frame).
-    pub const BORDER_STRONG: Color = alpha(TEXT, 0.55);
+    /// Window background: warm paper.
+    pub const BACKGROUND: Color = Color::from_rgb8(0xFB, 0xF7, 0xEE);
+    /// A sheet laid on the paper: cards, rows and the capability grid.
+    pub const SURFACE: Color = Color::from_rgb8(0xFF, 0xFD, 0xF6);
+    /// Recessed interiors: search fields, pickers, the sort chips.
+    pub const WELL: Color = Color::from_rgb8(0xF1, 0xEA, 0xDA);
+    /// Hairline rules: the field grid between rows.
+    pub const BORDER: Color = Color::from_rgb8(0xE7, 0xDE, 0xCB);
+    /// Rules that carry structure (hover, a selected sheet, the capability grid).
+    pub const BORDER_STRONG: Color = Color::from_rgb8(0xC9, 0xBC, 0xA3);
 
     // Text tones.
-    /// Primary ink: silk-screened legends and values.
-    pub const TEXT: Color = Color::from_rgb8(0xE9, 0xEB, 0xE4);
-    /// Secondary ink: keys, hints, details.
-    pub const MUTED: Color = Color::from_rgb8(0x9A, 0xA3, 0x9B);
+    /// Primary ink: names, values, sentences.
+    pub const TEXT: Color = Color::from_rgb8(0x2C, 0x27, 0x21);
+    /// Secondary ink: keys, hints, explanations. 6:1 on the paper.
+    pub const MUTED: Color = Color::from_rgb8(0x66, 0x5E, 0x52);
 
     // Signal and semantic roles.
-    /// The single signal colour: action and attention.
-    pub const ACCENT: Color = Color::from_rgb8(0xE3, 0xB2, 0x3C);
-    pub const ACCENT_HOVER: Color = Color::from_rgb8(0xED, 0xC1, 0x58);
-    pub const ACCENT_PRESSED: Color = Color::from_rgb8(0xC9, 0x9A, 0x2E);
-    /// The ink for signal fills; silk on the signal colour would be 3.5:1.
-    pub const ON_ACCENT: Color = Color::from_rgb8(0x22, 0x28, 0x2E);
-    pub const SUCCESS: Color = Color::from_rgb8(0x6F, 0xAF, 0x74);
-    /// The signal colour also carries caution: the placard's shape, not a
-    /// second hue, is what separates an attention warning from an action.
-    pub const WARNING: Color = Color::from_rgb8(0xE3, 0xB2, 0x3C);
-    pub const ERROR: Color = Color::from_rgb8(0xE0, 0x73, 0x61);
+    /// The one crayon colour: the live row, the primary action, the level bar.
+    pub const ACCENT: Color = Color::from_rgb8(0xC0, 0x44, 0x2F);
+    pub const ACCENT_HOVER: Color = Color::from_rgb8(0xAE, 0x3A, 0x25);
+    pub const ACCENT_PRESSED: Color = Color::from_rgb8(0x9C, 0x33, 0x1F);
+    /// The ink an accent fill carries; paper white on the crayon is 3.8:1.
+    pub const ON_ACCENT: Color = Color::from_rgb8(0xFF, 0xF9, 0xF0);
+    /// Done and verified.
+    pub const SUCCESS: Color = Color::from_rgb8(0x2E, 0x6B, 0x45);
+    /// Caution that is not an action: the model/language mismatch.
+    pub const WARNING: Color = Color::from_rgb8(0x8A, 0x5A, 0x12);
+    /// Failure text — always the readable ink, never the fill.
+    pub const ERROR: Color = Color::from_rgb8(0x8E, 0x2A, 0x20);
     /// The stop red for fills and heavy bars; text uses [`ERROR`].
-    pub const ERROR_FILL: Color = Color::from_rgb8(0xC1, 0x4B, 0x3A);
+    pub const ERROR_FILL: Color = Color::from_rgb8(0xA6, 0x2B, 0x21);
 
     /// [`Color`] with a different alpha channel.
     pub const fn alpha(color: Color, a: f32) -> Color {
@@ -157,42 +156,47 @@ pub mod palette {
 /// type scale. Every `spacing`, `padding`, `size` and `width` in the views comes
 /// from here.
 pub mod metrics {
-    // Spacing: 4 / 8 / 12 / 16 / 24 / 32.
+    // Spacing: 4 / 8 / 12 / 16 / 24 / 36. More air above a heading than below it.
     pub const SPACE_XS: f32 = 4.0;
     pub const SPACE_SM: f32 = 8.0;
     pub const SPACE_MD: f32 = 12.0;
     pub const SPACE_LG: f32 = 16.0;
     pub const SPACE_XL: f32 = 24.0;
     /// The gap between settings sections.
-    pub const SPACE_XXL: f32 = 32.0;
+    pub const SPACE_XXL: f32 = 36.0;
 
-    // Shape: the plate and its fields are square-stamped; only the floating
-    // overlay pill and the onboarding step chips round.
-    pub const RADIUS_CONTROL: f32 = 0.0;
-    pub const RADIUS_SURFACE: f32 = 0.0;
+    // Shape: sheets and controls are softly rounded; only the floating overlay
+    // pill and the onboarding step chips are fully round.
+    pub const RADIUS_CONTROL: f32 = 10.0;
+    pub const RADIUS_SURFACE: f32 = 14.0;
     /// The floating overlay indicator (`overlay_render`).
     pub const RADIUS_OVERLAY: f32 = 16.0;
     pub const RADIUS_PILL: f32 = 999.0;
 
-    // Type scale, logical pixels: one legible ladder. Condensed caps are set a
-    // step above the value size, because caps at the same px read smaller.
-    // Lifted on 2026-10-17: the first ladder read a step too small on real
-    // screens (user feedback), so every step moved up together.
-    pub const TEXT_CAPTION: f32 = 15.0;
+    // Type scale, logical pixels: four steps, hierarchy carried by weight and
+    // space. Atkinson Hyperlegible's tall x-height keeps 14 px legible.
+    pub const TEXT_CAPTION: f32 = 14.0;
     pub const TEXT_BODY: f32 = 17.0;
-    pub const TEXT_LEAD: f32 = 18.0;
-    pub const TEXT_HEADING: f32 = 18.0;
-    pub const TEXT_TITLE: f32 = 24.0;
+    pub const TEXT_LEAD: f32 = 19.0;
+    pub const TEXT_HEADING: f32 = 20.0;
+    pub const TEXT_TITLE: f32 = 26.0;
+    /// Button and chip labels: a step between caption and body.
+    pub const TEXT_CONTROL: f32 = 15.0;
 
-    /// The label column of a field row: the key locked, the value aligned.
-    pub const FIELD_LABEL_WIDTH: f32 = 96.0;
+    /// Reading line height for prose and explanations.
+    pub const LINE_HEIGHT: f32 = 1.5;
+    /// Tighter line height for titles and headings.
+    pub const LINE_HEIGHT_TIGHT: f32 = 1.25;
+
+    /// The label column of a labelled row: the key locked, the value aligned.
+    pub const FIELD_LABEL_WIDTH: f32 = 150.0;
 
     /// The padding of a labelled button: `[vertical, horizontal]`.
-    pub const BUTTON_PADDING: [f32; 2] = [SPACE_SM, SPACE_LG];
+    pub const BUTTON_PADDING: [f32; 2] = [SPACE_SM + 2.0, SPACE_LG + 2.0];
 
     // Scrollbar groove and scroller widths.
-    pub const SCROLLBAR_WIDTH: f32 = 8.0;
-    pub const SCROLLBAR_SCROLLER: f32 = 8.0;
+    pub const SCROLLBAR_WIDTH: f32 = 10.0;
+    pub const SCROLLBAR_SCROLLER: f32 = 6.0;
 }
 
 /// The style vocabulary: every widget in both windows styles all of its statuses
@@ -215,53 +219,67 @@ pub mod style {
         border::rounded(radius).color(color).width(1.0)
     }
 
-    /// Primary action: a stamped signal frame; it fills on hover.
+    /// Primary action: a crayon fill carrying paper-white ink.
     pub fn primary_button(_theme: &Theme, status: button::Status) -> button::Style {
-        let (background, border_color, text_color) = match status {
-            button::Status::Active => (None, palette::ACCENT, palette::ACCENT),
-            button::Status::Hovered => (
-                fill(palette::ACCENT_HOVER),
-                palette::ACCENT,
-                palette::ON_ACCENT,
-            ),
-            button::Status::Pressed => (
-                fill(palette::ACCENT_PRESSED),
-                palette::ACCENT_PRESSED,
-                palette::ON_ACCENT,
-            ),
-            button::Status::Disabled => (None, palette::alpha(palette::TEXT, 0.20), palette::MUTED),
+        let (background, text_color) = match status {
+            button::Status::Active => (palette::ACCENT, palette::ON_ACCENT),
+            button::Status::Hovered => (palette::ACCENT_HOVER, palette::ON_ACCENT),
+            button::Status::Pressed => (palette::ACCENT_PRESSED, palette::ON_ACCENT),
+            button::Status::Disabled => (palette::alpha(palette::TEXT, 0.10), palette::MUTED),
         };
 
         button::Style {
-            background,
+            background: fill(background),
             text_color,
-            border: outline(border_color, metrics::RADIUS_CONTROL),
+            border: border::rounded(metrics::RADIUS_CONTROL),
             ..button::Style::default()
         }
     }
 
-    /// Secondary action: a silk frame on the steel.
+    /// Secondary action: a sheet with a hairline around ink text.
     pub fn secondary_button(_theme: &Theme, status: button::Status) -> button::Style {
         let (background, border_color, text_color) = match status {
-            button::Status::Active => (None, palette::BORDER_STRONG, palette::TEXT),
-            button::Status::Hovered => (fill(palette::SURFACE_HOVER), palette::TEXT, palette::TEXT),
+            button::Status::Active => (palette::SURFACE, palette::BORDER_STRONG, palette::TEXT),
+            button::Status::Hovered => (palette::WELL, palette::BORDER_STRONG, palette::TEXT),
             button::Status::Pressed => (
-                fill(palette::alpha(palette::TEXT, 0.12)),
-                palette::TEXT,
+                palette::alpha(palette::TEXT, 0.08),
+                palette::BORDER_STRONG,
                 palette::TEXT,
             ),
-            button::Status::Disabled => (None, palette::alpha(palette::TEXT, 0.20), palette::MUTED),
+            button::Status::Disabled => (palette::SURFACE, palette::BORDER, palette::MUTED),
         };
 
         button::Style {
-            background,
+            background: fill(background),
             text_color,
             border: outline(border_color, metrics::RADIUS_CONTROL),
             ..button::Style::default()
         }
     }
 
-    /// A link-style button: reads like the value it opens, signals on hover.
+    /// A selected chip: the crayon as ink and frame, the sheet behind it. A chip
+    /// marks a choice already made, so it must not look like the primary action.
+    pub fn chip_active(_theme: &Theme, status: button::Status) -> button::Style {
+        let (background, border_color) = match status {
+            button::Status::Active => (palette::SURFACE, palette::ACCENT),
+            button::Status::Hovered => (palette::WELL, palette::ACCENT),
+            button::Status::Pressed => (palette::WELL, palette::ACCENT_PRESSED),
+            button::Status::Disabled => (palette::SURFACE, palette::BORDER),
+        };
+
+        button::Style {
+            background: fill(background),
+            text_color: if matches!(status, button::Status::Disabled) {
+                palette::MUTED
+            } else {
+                palette::ACCENT
+            },
+            border: outline(border_color, metrics::RADIUS_CONTROL),
+            ..button::Style::default()
+        }
+    }
+
+    /// A link-style button: ink at rest, the crayon on hover.
     pub fn link(_theme: &Theme, status: button::Status) -> button::Style {
         let text_color = match status {
             button::Status::Active => palette::MUTED,
@@ -278,20 +296,10 @@ pub mod style {
         }
     }
 
-    /// The plate: the lifted steel surface every grouped field sits on.
+    /// A sheet laid on the paper: the surface grouped content sits on.
     pub fn plate(_theme: &Theme) -> container::Style {
         container::Style {
             background: fill(palette::SURFACE),
-            border: outline(palette::BORDER_STRONG, metrics::RADIUS_SURFACE),
-            text_color: Some(palette::TEXT),
-            ..container::Style::default()
-        }
-    }
-
-    /// The plate's inner legend frame: the second hairline of a nameplate.
-    pub fn plate_inner(_theme: &Theme) -> container::Style {
-        container::Style {
-            background: None,
             border: outline(palette::BORDER, metrics::RADIUS_SURFACE),
             text_color: Some(palette::TEXT),
             ..container::Style::default()
@@ -303,7 +311,8 @@ pub mod style {
         plate(theme)
     }
 
-    /// The selected plate: the same surface behind a signal frame.
+    /// The live sheet: the same paper behind a heavier crayon frame. Selection is
+    /// a frame, not a wash — a tint behind nested content muddies both.
     pub fn card_selected(theme: &Theme) -> container::Style {
         container::Style {
             border: border::rounded(metrics::RADIUS_SURFACE)
@@ -326,14 +335,14 @@ pub mod style {
     /// A loading placeholder shaped like the row it stands in for.
     pub fn skeleton(_theme: &Theme) -> container::Style {
         container::Style {
-            background: fill(palette::alpha(palette::TEXT, 0.05)),
+            background: fill(palette::WELL),
             border: outline(palette::BORDER, metrics::RADIUS_SURFACE),
             ..container::Style::default()
         }
     }
 
-    /// A placard: the tone's wash, its ink and a frame in the same tone — the
-    /// one alarm shape. Failures frame in the stop red.
+    /// A placard: the tone's wash, its ink and a soft frame in the same tone —
+    /// the one alarm shape. Failures frame in the stop red.
     pub fn placard(tone: Tone) -> impl Fn(&Theme) -> container::Style + 'static {
         let ink = tone.color();
         let frame = match tone {
@@ -342,40 +351,40 @@ pub mod style {
         };
 
         move |_theme| container::Style {
-            background: fill(palette::alpha(ink, 0.10)),
-            border: outline(palette::alpha(frame, 0.70), metrics::RADIUS_CONTROL),
+            background: fill(palette::alpha(ink, 0.08)),
+            border: outline(palette::alpha(frame, 0.32), metrics::RADIUS_CONTROL),
             text_color: Some(ink),
             ..container::Style::default()
         }
     }
 
-    /// Determinate progress (model download). The track is a silk wash so the
-    /// filled/unfilled boundary stays visible; the percentage carries the value.
+    /// Determinate progress (model download). The track is the hairline tone so
+    /// the filled/unfilled boundary stays visible; the percentage carries the value.
     pub fn progress(_theme: &Theme) -> progress_bar::Style {
         progress_bar::Style {
-            background: Background::Color(palette::alpha(palette::TEXT, 0.20)),
+            background: Background::Color(palette::BORDER),
             bar: Background::Color(palette::ACCENT),
-            border: border::rounded(metrics::SPACE_XS / 2.0),
+            border: border::rounded(4.0),
         }
     }
 
-    /// The model-card indicator bars: the same signal, quieter and thin.
+    /// The model-card indicator bars: the same crayon, quieter and thin.
     /// Deliberately not the download progress look — these are reference values,
     /// not work in flight.
     pub fn progress_subtle(_theme: &Theme) -> progress_bar::Style {
         progress_bar::Style {
-            background: Background::Color(palette::alpha(palette::TEXT, 0.12)),
-            bar: Background::Color(palette::alpha(palette::ACCENT, 0.7)),
-            border: border::rounded(1.0),
+            background: Background::Color(palette::BORDER),
+            bar: Background::Color(palette::alpha(palette::ACCENT, 0.55)),
+            border: border::rounded(4.0),
         }
     }
 
-    /// A radio option; the dot carries the accent, the ring carries the hover.
+    /// A radio option; the dot carries the crayon, the ring carries the hover.
     /// The ring is a text tone so the unselected control stays above the 3:1
     /// non-text contrast minimum.
     pub fn radio(_theme: &Theme, status: radio_widget::Status) -> radio_widget::Style {
         let border_color = match status {
-            radio_widget::Status::Active { .. } => palette::MUTED,
+            radio_widget::Status::Active { .. } => palette::BORDER_STRONG,
             radio_widget::Status::Hovered { .. } => palette::ACCENT,
         };
 
@@ -388,7 +397,7 @@ pub mod style {
         }
     }
 
-    /// A field: the recessed well, signal frame while focused.
+    /// A field: the recessed well, crayon frame while focused.
     pub fn text_input(
         _theme: &Theme,
         status: text_input_widget::Status,
@@ -407,16 +416,17 @@ pub mod style {
             icon: palette::MUTED,
             placeholder: palette::MUTED,
             value: palette::TEXT,
-            selection: palette::alpha(palette::ACCENT, 0.35),
+            selection: palette::alpha(palette::ACCENT, 0.28),
         }
     }
 
     /// The device picker: the field's well, its border carrying hover and open.
     pub fn pick_list(_theme: &Theme, status: pick_list_widget::Status) -> pick_list_widget::Style {
+        // Hover is a heavier hairline; only the open picker takes the crayon, so
+        // hover and focus never look the same.
         let border_color = match status {
-            pick_list_widget::Status::Hovered | pick_list_widget::Status::Opened { .. } => {
-                palette::ACCENT
-            }
+            pick_list_widget::Status::Opened { .. } => palette::ACCENT,
+            pick_list_widget::Status::Hovered => palette::BORDER_STRONG,
             pick_list_widget::Status::Active => palette::BORDER,
         };
 
@@ -429,7 +439,7 @@ pub mod style {
         }
     }
 
-    /// The picker's dropdown: one step lifted, no shadow — steel is flat.
+    /// The picker's dropdown: a sheet lifted off the paper by a soft shadow.
     pub fn pick_list_menu(_theme: &Theme) -> menu_widget::Style {
         menu_widget::Style {
             background: Background::Color(palette::SURFACE),
@@ -437,26 +447,30 @@ pub mod style {
             text_color: palette::TEXT,
             selected_text_color: palette::ON_ACCENT,
             selected_background: Background::Color(palette::ACCENT),
-            shadow: Shadow::default(),
+            shadow: Shadow {
+                color: palette::alpha(palette::TEXT, 0.18),
+                offset: iced::Vector::new(0.0, 6.0),
+                blur_radius: 18.0,
+            },
         }
     }
 
-    /// The scrollbars of the two scrolling regions.
+    /// The scrollbars of the scrolling regions: a soft rail-less thumb.
     pub fn scrollable(
         _theme: &Theme,
         status: scrollable_widget::Status,
     ) -> scrollable_widget::Style {
         let scroller = match status {
-            scrollable_widget::Status::Active { .. } => palette::alpha(palette::TEXT, 0.35),
-            scrollable_widget::Status::Hovered { .. } => palette::alpha(palette::TEXT, 0.60),
+            scrollable_widget::Status::Active { .. } => palette::alpha(palette::MUTED, 0.45),
+            scrollable_widget::Status::Hovered { .. } => palette::alpha(palette::MUTED, 0.70),
             scrollable_widget::Status::Dragged { .. } => palette::ACCENT,
         };
         let rail = scrollable_widget::Rail {
             background: None,
-            border: border::rounded(metrics::RADIUS_CONTROL),
+            border: border::rounded(metrics::RADIUS_PILL),
             scroller: scrollable_widget::Scroller {
                 background: Background::Color(scroller),
-                border: border::rounded(metrics::RADIUS_CONTROL),
+                border: border::rounded(metrics::RADIUS_PILL),
             },
         };
 
@@ -467,8 +481,12 @@ pub mod style {
             gap: None,
             auto_scroll: scrollable_widget::AutoScroll {
                 background: Background::Color(palette::SURFACE),
-                border: outline(palette::BORDER, metrics::RADIUS_SURFACE),
-                shadow: Shadow::default(),
+                border: outline(palette::BORDER_STRONG, metrics::RADIUS_CONTROL),
+                shadow: Shadow {
+                    color: palette::alpha(palette::TEXT, 0.18),
+                    offset: iced::Vector::new(0.0, 4.0),
+                    blur_radius: 14.0,
+                },
                 icon: palette::TEXT,
             },
         }
@@ -969,60 +987,58 @@ impl SettingsUi {
 
 // ------------------------------------------------------------- small widgets
 
-/// The legend face: keys, headings and state legends, always upper-case.
-fn legend() -> Font {
-    Font {
-        family: Family::Name("Barlow Condensed"),
-        weight: Weight::Semibold,
-        ..Font::DEFAULT
-    }
-}
-
-/// The value face: prose, names and sentences.
+/// The reading face at regular weight: prose, values and labels.
 fn value() -> Font {
     Font {
-        family: Family::Name("Inter"),
+        family: Family::Name("Atkinson Hyperlegible"),
         ..Font::DEFAULT
     }
 }
 
-/// A surface title: the largest legend.
+/// The same face at bold: titles, headings, names and actions. Hierarchy is
+/// weight and space, never a fourth type size.
+fn legend() -> Font {
+    Font {
+        family: Family::Name("Atkinson Hyperlegible"),
+        weight: Weight::Bold,
+        ..Font::DEFAULT
+    }
+}
+
+/// A surface title: the largest step, sentence case.
 pub fn title<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into().to_uppercase())
+    text(content.into())
         .size(metrics::TEXT_TITLE)
         .font(legend())
         .color(palette::TEXT)
-        .line_height(1.2)
+        .line_height(metrics::LINE_HEIGHT_TIGHT)
         .into()
 }
 
-/// A section heading: a legend over its section.
+/// A section heading: bold at the body step, sentence case.
 pub fn heading<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into().to_uppercase())
+    text(content.into())
         .size(metrics::TEXT_HEADING)
         .font(legend())
         .color(palette::TEXT)
-        .line_height(1.2)
+        .line_height(metrics::LINE_HEIGHT_TIGHT)
         .into()
 }
 
-/// A field key: the small legend that labels the value beside it.
+/// A field key: the quiet label that names the value beside it.
 pub fn key<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into().to_uppercase())
+    text(content.into())
         .size(metrics::TEXT_CAPTION)
-        .font(legend())
+        .font(value())
         .color(palette::MUTED)
         .into()
 }
 
-/// An emphasised inline value: the value face, brightened.
+/// An emphasised inline value: the reading face, bold.
 pub fn strong<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_BODY)
-        .font(Font {
-            weight: Weight::Semibold,
-            ..value()
-        })
+        .font(legend())
         .color(palette::TEXT)
         .into()
 }
@@ -1036,18 +1052,19 @@ pub fn muted<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
         .into()
 }
 
-/// A muted explanation line that wraps instead of overflowing.
+/// A muted explanation that wraps instead of overflowing.
 pub fn lead<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_BODY)
         .font(value())
         .color(palette::MUTED)
         .width(Length::Fill)
+        .line_height(metrics::LINE_HEIGHT)
         .wrapping(Wrapping::WordOrGlyph)
         .into()
 }
 
-/// A monospace data value, sized to its content (inline use).
+/// A data value in the monospace face: sizes, counts, percentages.
 pub fn data<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
     text(content.into())
         .size(metrics::TEXT_CAPTION)
@@ -1067,71 +1084,105 @@ pub fn mono<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
         .into()
 }
 
-/// The configured key chord (an identifier: monospace, one step larger).
+/// The configured key chord: ordinary words, not an identifier — "Ctrl + Super"
+/// reads faster than the stored "CTRL+SUPER".
 pub fn chord<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into())
+    text(chord_words(&content.into()))
         .size(metrics::TEXT_LEAD)
-        .font(Font::MONOSPACE)
+        .font(legend())
         .color(palette::TEXT)
         .into()
 }
 
-/// A one-line state caption in its tone's colour — the compact counterpart of
-/// [`banner`], set in the legend face so every state reads the same way.
+/// Spell a stored chord the way a person says it: `CTRL+SUPER` → `Ctrl + Super`.
+/// Unknown tokens keep their spelling with the first letter capitalised, so a
+/// key the table does not name still reads as a word.
+pub fn chord_words(raw: &str) -> String {
+    raw.split('+')
+        .filter(|token| !token.trim().is_empty())
+        .map(|token| {
+            let upper = token.trim().to_ascii_uppercase();
+            match upper.as_str() {
+                "CTRL" | "CONTROL" => "Ctrl".to_owned(),
+                "SUPER" | "META" | "WIN" => "Super".to_owned(),
+                "ALT" => "Alt".to_owned(),
+                "SHIFT" => "Shift".to_owned(),
+                _ => {
+                    let mut chars = upper.chars();
+                    match chars.next() {
+                        Some(first) => first.to_string() + &chars.as_str().to_ascii_lowercase(),
+                        None => String::new(),
+                    }
+                }
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" + ")
+}
+
+/// A one-line state caption in its tone's colour. The state always says its
+/// word, so colour is a second signal and never the only one.
 pub fn state_tag<M: 'static>(content: impl Into<String>, tone: Tone) -> Element<'static, M> {
-    text(content.into().to_uppercase())
+    text(content.into())
         .size(metrics::TEXT_CAPTION)
         .font(legend())
         .color(tone.color())
         .into()
 }
 
-/// One state lamp: a signal dot that reads at a glance.
-pub fn lamp<M: 'static>(tone: Tone) -> Element<'static, M> {
-    let color = tone.color();
-    container(iced::widget::space().width(7.0).height(7.0))
-        .style(move |_theme: &Theme| container::Style {
-            background: Some(Background::Color(color)),
-            border: border::rounded(3.5),
-            ..container::Style::default()
-        })
-        .into()
-}
-
-/// The designed-off lamp: a hollow ring, never a dimmed dot.
-pub fn lamp_off<M: 'static>() -> Element<'static, M> {
-    container(iced::widget::space().width(7.0).height(7.0))
-        .style(|_theme: &Theme| container::Style {
-            background: None,
-            border: border::rounded(3.5).color(palette::MUTED).width(1.0),
-            ..container::Style::default()
-        })
-        .into()
-}
-
-/// A control legend: the action face every stamped button carries. No colour —
-/// the button's own style inks it.
+/// A control label: sentence case in the bold face.
 pub fn stamp<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
-    text(content.into().to_uppercase())
-        .size(metrics::TEXT_CAPTION)
+    text(content.into())
+        .size(metrics::TEXT_CONTROL)
         .font(legend())
         .into()
 }
 
-/// The capability plate: one lifted steel surface with the inner legend frame.
-pub fn plate<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
-    container(
-        container(content)
-            .padding(metrics::SPACE_MD)
-            .style(style::plate_inner),
-    )
-    .padding(metrics::SPACE_XS)
-    .width(Length::Fill)
-    .style(style::plate)
-    .into()
+/// A region inside a sheet: a hairline boundary with no fill of its own, so a
+/// grouped block never becomes a card inside a card.
+pub fn inset<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
+    let content = container(content).padding(metrics::SPACE_MD);
+    container(content)
+        .width(Length::Fill)
+        .style(style::outline_row)
+        .into()
 }
 
-/// A card: one surface, radius and padding for grouped content.
+/// A sentence in ink at the body step: values that read as prose, not as data.
+pub fn body<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
+    text(content.into())
+        .size(metrics::TEXT_BODY)
+        .font(value())
+        .color(palette::TEXT)
+        .width(Length::Fill)
+        .line_height(metrics::LINE_HEIGHT)
+        .wrapping(Wrapping::WordOrGlyph)
+        .into()
+}
+
+/// A one-sentence statement of the machine's state: the first thing a surface
+/// says. Bold, at the lead step, wrapping into the available width.
+pub fn headline<M: 'static>(content: impl Into<String>) -> Element<'static, M> {
+    text(content.into())
+        .size(metrics::TEXT_LEAD)
+        .font(legend())
+        .color(palette::TEXT)
+        .width(Length::Fill)
+        .line_height(metrics::LINE_HEIGHT)
+        .wrapping(Wrapping::WordOrGlyph)
+        .into()
+}
+
+/// A sheet laid on the paper: one frame, one hairline, generous padding.
+pub fn plate<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
+    container(content)
+        .padding(metrics::SPACE_XL)
+        .width(Length::Fill)
+        .style(style::plate)
+        .into()
+}
+
+/// A card: one sheet, one hairline, room for grouped content.
 pub fn card<M: 'static>(content: impl Into<Element<'static, M>>) -> Element<'static, M> {
     surface(content, style::card)
 }
@@ -1160,7 +1211,7 @@ fn row_surface<M: 'static>(
     style: fn(&Theme) -> container::Style,
 ) -> Element<'static, M> {
     container(content)
-        .padding([metrics::SPACE_SM, metrics::SPACE_LG])
+        .padding([metrics::SPACE_MD, metrics::SPACE_LG])
         .width(Length::Fill)
         .style(style)
         .into()
@@ -1177,17 +1228,18 @@ fn surface<M: 'static>(
         .into()
 }
 
-/// A placard: the tone's wash, frame and ink — the one alarm shape. No edge
-/// stripe; the full frame is what reads as a plate.
+/// A placard: the tone's wash, frame and ink — the one alarm shape.
 pub fn banner<M: 'static>(content: impl Into<String>, tone: Tone) -> Element<'static, M> {
     container(
         text(content.into())
             .size(metrics::TEXT_BODY)
+            .font(value())
             .color(tone.color())
             .width(Length::Fill)
+            .line_height(metrics::LINE_HEIGHT)
             .wrapping(Wrapping::WordOrGlyph),
     )
-    .padding(metrics::SPACE_MD)
+    .padding([metrics::SPACE_MD, metrics::SPACE_LG])
     .width(Length::Fill)
     .style(style::placard(tone))
     .into()
@@ -1227,17 +1279,13 @@ pub fn step_chip<M: 'static>(
     state: ChipState,
 ) -> Element<'static, M> {
     let (background, border_color, text_color) = match state {
-        ChipState::Current => (
-            palette::alpha(palette::ACCENT, 0.16),
-            palette::ACCENT,
-            palette::ACCENT,
-        ),
+        ChipState::Current => (palette::ACCENT, palette::ACCENT, palette::ON_ACCENT),
         ChipState::Done => (palette::SURFACE, palette::BORDER_STRONG, palette::TEXT),
-        ChipState::Upcoming => (palette::BACKGROUND, palette::BORDER_STRONG, palette::MUTED),
+        ChipState::Upcoming => (palette::BACKGROUND, palette::BORDER, palette::MUTED),
     };
 
     container(
-        text(format!("{number}. {label}").to_uppercase())
+        text(format!("{number}  {label}"))
             .size(metrics::TEXT_CAPTION)
             .font(legend())
             .color(text_color),
@@ -1342,7 +1390,7 @@ pub fn model_panel<M: Clone + 'static>(
         ModelState::Verifying => {
             // The artifact is on disk: this run checks the SHA-256 and only
             // starts a transfer when the file fails that check (FR-003).
-            card(
+            inset(
                 iced::widget::column![
                     strong(format!("Verifying the model — {size_label} (SHA-256)")),
                     iced::widget::row![
@@ -1373,7 +1421,7 @@ pub fn model_panel<M: Clone + 'static>(
             .spacing(metrics::SPACE_MD)
             .align_y(iced::Alignment::Center);
 
-            card(
+            inset(
                 iced::widget::column![
                     strong(format!("Downloading the model — {size_label}")),
                     row,
@@ -1381,7 +1429,7 @@ pub fn model_panel<M: Clone + 'static>(
                 .spacing(metrics::SPACE_MD),
             )
         }
-        ModelState::Failed(error) => card(
+        ModelState::Failed(error) => inset(
             iced::widget::column![
                 banner(error, Tone::Error),
                 iced::widget::row![
@@ -1414,7 +1462,7 @@ pub fn model_panel<M: Clone + 'static>(
                 ),
             };
 
-            card(
+            inset(
                 iced::widget::column![
                     status,
                     iced::widget::row![action_button(
@@ -1511,44 +1559,53 @@ pub fn model_status_card<M: 'static>(
     }
     let line = model_state_line(&app.model_status, &selection.label());
     let mut body = iced::widget::column![
-        iced::widget::column![key::<M>(line.caption), mono::<M>(line.text)]
+        iced::widget::column![key::<M>(line.caption), body::<M>(line.text)]
             .spacing(metrics::SPACE_XS),
     ]
     .spacing(metrics::SPACE_MD);
     if let Some((note, tone)) = line.note {
         body = body.push(banner(note, tone));
     }
-    Some(card(body))
+    Some(inset(body))
 }
 
 /// One system-check row: status, detail and remediation (FR-014).
 pub fn check_row<M: 'static>(check: &Check) -> Element<'static, M> {
     let (tone, marker) = if check.ok {
-        (Tone::Success, "ok")
+        (Tone::Success, "Works")
     } else {
-        (Tone::Error, "fail")
+        (Tone::Error, "Needs a fix")
     };
 
     let mut body = iced::widget::column![
-        iced::widget::row![
-            text(marker.to_uppercase())
-                .size(metrics::TEXT_CAPTION)
-                .font(legend())
-                .color(tone.color()),
-            strong(check.name.to_owned()),
-        ]
-        .spacing(metrics::SPACE_SM)
-        .align_y(iced::Alignment::Center),
+        iced::widget::row![state_tag::<M>(marker, tone), strong(check.name.to_owned()),]
+            .spacing(metrics::SPACE_SM)
+            .align_y(iced::Alignment::Center),
         lead(check.detail.clone()),
     ]
     .spacing(metrics::SPACE_XS);
 
+    // The fix is prose, not code: two of the four checks name a setting rather
+    // than a command (FR-014 allows either), so the line is set in the reading
+    // face and labelled — mono would dress an instruction as a shell command.
     if let Some(remediation) = &check.remediation {
-        body = body.push(mono::<M>(remediation.clone()));
+        body = body.push(
+            iced::widget::row![
+                container(key::<M>("Fix")).width(Length::Fixed(metrics::SPACE_XL)),
+                text(remediation.clone())
+                    .size(metrics::TEXT_CONTROL)
+                    .font(value())
+                    .color(palette::TEXT)
+                    .width(Length::Fill)
+                    .wrapping(Wrapping::WordOrGlyph),
+            ]
+            .spacing(metrics::SPACE_SM)
+            .align_y(iced::Alignment::Start),
+        );
     }
 
     container(body)
-        .padding(metrics::SPACE_MD)
+        .padding(metrics::SPACE_LG)
         .width(Length::Fill)
         .style(style::outline_row)
         .into()
@@ -1567,6 +1624,16 @@ mod tests {
     fn undecodable_icon_bytes_yield_none() {
         assert!(decode_icon(b"not a png").is_none());
         assert!(decode_icon(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]).is_none());
+    }
+
+    /// The config stores the canonical spelling; the window must not show it.
+    #[test]
+    fn chord_words_read_like_a_person_says_them() {
+        assert_eq!(chord_words("CTRL+SUPER"), "Ctrl + Super");
+        assert_eq!(chord_words("CTRL+ALT+SPACE"), "Ctrl + Alt + Space");
+        assert_eq!(chord_words("SHIFT+F1"), "Shift + F1");
+        assert_eq!(chord_words("A"), "A");
+        assert_eq!(chord_words(""), "");
     }
 
     #[test]

@@ -39,7 +39,6 @@ mod overlay_x11;
 mod stream_lease;
 mod tray;
 mod ui;
-mod ui_icons;
 mod ui_onboarding;
 mod ui_problems;
 mod ui_settings;
@@ -352,13 +351,13 @@ fn run_daemon() -> Result<()> {
         return Ok(());
     }
 
-    tracing::info!("starting lingual daemon");
+    tracing::info!("starting littera daemon");
     iced::daemon(App::boot, App::update, App::view)
         .title(App::title)
         .theme(App::theme)
         .subscription(App::subscription)
-        .font(ui::FONT_VALUE)
-        .font(ui::FONT_LEGEND)
+        .font(ui::FONT_REGULAR)
+        .font(ui::FONT_BOLD)
         .run()
         .context("running the iced daemon failed")
 }

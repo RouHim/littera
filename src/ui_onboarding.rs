@@ -233,7 +233,7 @@ fn binding_step(app: &App) -> Element<'_, Action> {
     let ui = &app.onboarding;
 
     let mut bound = column![
-        row![ui::muted::<Action>("Chord"), ui::chord(ui.hotkey.clone()),]
+        row![ui::muted::<Action>("Keys"), ui::chord(ui.hotkey.clone()),]
             .spacing(metrics::SPACE_SM)
             .align_y(iced::Alignment::Center)
     ]
@@ -262,7 +262,7 @@ fn binding_step(app: &App) -> Element<'_, Action> {
         ui::banner(preview, Tone::Info)
     } else {
         row![
-            button(ui::stamp("Bind…"))
+            button(ui::stamp("Change keys"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::StartCapture),
@@ -351,9 +351,16 @@ fn footer(app: &App) -> Element<'_, Action> {
             .padding(metrics::BUTTON_PADDING),
     };
 
+    // One primary per view: on the model step the crayon belongs to Download
+    // until the model is on disk — Next is the way forward, not the task.
+    let next_style = if ui.step == ui::Step::Model && !ui.model_ready {
+        style::secondary_button
+    } else {
+        style::primary_button
+    };
     let next: Element<'_, Action> = if ui.step.next().is_some() {
         button(ui::stamp("Next"))
-            .style(style::primary_button)
+            .style(next_style)
             .padding(metrics::BUTTON_PADDING)
             .on_press(Action::Next)
             .into()

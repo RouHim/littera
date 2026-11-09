@@ -1,90 +1,108 @@
 ---
 name: Littera
-description: Local voice dictation for Linux/Wayland — an instrument that states its own truth.
+description: Local voice dictation for Linux/Wayland — a window that explains itself in plain sentences.
 colors:
-  enamel: "#22282E"
-  plate: "#262D34"
-  well: "#1D2329"
-  silk: "#E9EBE4"
-  muted: "#9AA39B"
-  signal: "#E3B23C"
-  signal-hover: "#EDC158"
-  signal-pressed: "#C99A2E"
-  stop: "#C14B3A"
-  fault: "#E07361"
-  run: "#6FAF74"
+  paper: "#FBF7EE"
+  sheet: "#FFFDF6"
+  well: "#F1EADA"
+  rule: "#E7DECB"
+  rule-strong: "#C9BCA3"
+  ink: "#2C2721"
+  muted: "#665E52"
+  crayon: "#C0442F"
+  crayon-hover: "#AE3A25"
+  crayon-pressed: "#9C331F"
+  paper-on-crayon: "#FFF9F0"
+  done: "#2E6B45"
+  caution: "#8A5A12"
+  failure: "#8E2A20"
+  failure-fill: "#A62B21"
 typography:
-  brand:
-    fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "18px"
-    fontWeight: 600
   title:
-    fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "24px"
-    fontWeight: 600
-    lineHeight: 1.2
-  legend:
-    fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "18px"
-    fontWeight: 600
-    lineHeight: 1.2
-  key:
-    fontFamily: "Barlow Condensed, sans-serif"
-    fontSize: "15px"
-    fontWeight: 600
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
+    fontSize: "26px"
+    fontWeight: 700
+    lineHeight: 1.25
+  heading:
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
+    fontSize: "20px"
+    fontWeight: 700
+    lineHeight: 1.25
+  lead:
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
+    fontSize: "19px"
+    fontWeight: 700
+    lineHeight: 1.5
   body:
-    fontFamily: "Inter, sans-serif"
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "17px"
     fontWeight: 400
-  identifier:
-    fontFamily: "ui-monospace, monospace"
+    lineHeight: 1.5
+  caption:
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.5
+  control:
+    fontFamily: "Atkinson Hyperlegible, sans-serif"
     fontSize: "15px"
+    fontWeight: 700
+  data:
+    fontFamily: "ui-monospace, monospace"
+    fontSize: "14px"
     fontWeight: 400
 rounded:
-  control: "0px"
-  surface: "0px"
-  pill: "16px"
+  control: "10px"
+  sheet: "14px"
+  overlay: "16px"
+  pill: "999px"
 spacing:
   xs: "4px"
   sm: "8px"
   md: "12px"
   lg: "16px"
   xl: "24px"
-  xxl: "32px"
+  xxl: "36px"
 components:
   button-primary:
-    backgroundColor: "transparent"
-    textColor: "{colors.signal}"
-    typography: "{typography.key}"
+    backgroundColor: "{colors.crayon}"
+    textColor: "{colors.paper-on-crayon}"
+    typography: "{typography.control}"
     rounded: "{rounded.control}"
-    padding: "8px 16px"
+    padding: "10px 18px"
   button-primary-hover:
-    backgroundColor: "{colors.signal-hover}"
-    textColor: "{colors.enamel}"
-    typography: "{typography.key}"
+    backgroundColor: "{colors.crayon-hover}"
+    textColor: "{colors.paper-on-crayon}"
+    typography: "{typography.control}"
     rounded: "{rounded.control}"
-    padding: "8px 16px"
+    padding: "10px 18px"
   button-secondary:
-    backgroundColor: "transparent"
-    textColor: "{colors.silk}"
-    typography: "{typography.key}"
+    backgroundColor: "{colors.sheet}"
+    textColor: "{colors.ink}"
+    typography: "{typography.control}"
     rounded: "{rounded.control}"
-    padding: "8px 16px"
-  plate:
-    backgroundColor: "{colors.plate}"
-    textColor: "{colors.silk}"
-    rounded: "{rounded.surface}"
-    padding: "12px"
+    padding: "10px 18px"
+  chip-active:
+    backgroundColor: "{colors.sheet}"
+    textColor: "{colors.crayon}"
+    typography: "{typography.caption}"
+    rounded: "{rounded.control}"
+    padding: "2px 8px"
+  sheet:
+    backgroundColor: "{colors.sheet}"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.sheet}"
+    padding: "16px"
   field:
     backgroundColor: "{colors.well}"
-    textColor: "{colors.silk}"
+    textColor: "{colors.ink}"
     typography: "{typography.body}"
     rounded: "{rounded.control}"
-    padding: "8px 10px"
+    padding: "10px 18px"
   overlay-pill:
-    backgroundColor: "rgba(38, 45, 52, 0.90)"
-    textColor: "{colors.silk}"
-    rounded: "{rounded.pill}"
+    backgroundColor: "rgba(255, 253, 246, 0.96)"
+    textColor: "{colors.ink}"
+    rounded: "{rounded.overlay}"
     width: "560px"
     height: "112px"
 ---
@@ -93,165 +111,200 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Nameplate"**
+**Creative North Star: "The First Reader"** (chosen 2026-11-09, replacing "The
+Nameplate").
 
-Littera's windows are the machine talking about itself. The Settings screen opens on a
-single stamped plate — model, backend, device, hotkey, one state lamp each — and then
-disciplined rows of field facts below it. Legends are condensed and capitalised as if
-silk-screened onto enamelled steel; values are set plainly; identifiers, paths and
-commands are monospace because they are data. Alarms are placards: a full frame, the
-tone's wash, the tone's ink. Nothing is rounded, nothing floats, nothing glows.
+Littera's windows explain themselves the way a good reading book does: one plain
+sentence at a time, generous margins, and one crayon colour marking where you
+are. The Settings window opens on a sentence that answers the only question a
+person has when they open it — can I dictate right now? — then states four
+machine facts as label/value rows and gets out of the way.
 
-The use scene fixes the light: someone at a desk, often at night, screen-lit, opening
-Settings deliberately mid-work to change one setting and close it again; the overlay
-pill floats over any content at any hour. That forces a dark steel ground with one
-signal colour, and it forces restraint — the app is a background instrument, not a
-destination.
-
-The system is deliberately sparse where it can be and explicit where it must be. Every
-capability the platform withholds has a surface: a lamp dims, a placard turns on, a
-blocked path names its fix. The world carries colour as information — the signal
-yellow means "actable or attention", the stop red means failure, the run green means a
-verified machine state — and nothing else is coloured.
+The use scene fixes the light: a desk, a bright room or a dim one, the window
+open for the fifteen seconds it takes to change one setting. Paper, not steel;
+ink, not silk-screen. Nothing is condensed, nothing is stamped, nothing is
+upper-case — the previous world read as lab equipment, and this one reads as a
+page.
 
 **Key Characteristics:**
-- One capability plate per surface, framed twice, never repeated.
-- Stamped square controls; hover fills, nothing tweens.
-- Legends in condensed caps; values in Inter; identifiers in monospace.
-- Lamps and placards as the only state vocabulary.
-- Flat steel: no shadows, no gradients, no rounded cards.
+- Warm paper ground, white sheets, one crayon accent.
+- One typeface (Atkinson Hyperlegible) in two weights; hierarchy by weight and
+  space, never by a fourth size.
+- Sentence case everywhere; monospace only for real data.
+- Every state says its word; colour is the second signal.
+- Flat and softly rounded: 10px controls, 14px sheets, no shadow except menus.
 
 ## Colors
 
-The palette is a single dark steel family plus three signal inks; colour is never decoration.
+Colour is information, not decoration. The crayon marks the live row and the one
+primary action; the semantic inks mark success, caution and failure; everything
+else is paper, ink and hairlines.
 
 ### Primary
-- **Signal Amber** (#E3B23C): the one action colour. Primary buttons (as a frame at rest, a fill on hover), focused field frames, the running download bar, active chips, and the caution wash of warning placards. Used sparingly; it is the only saturated ink on the screen.
-- **Signal Amber, Shallow** (#EDC158) and **Signal Amber, Deep** (#C99A2E): the hover and pressed fills of primary controls.
+- **Crayon** (#C0442F): the live row's frame, the primary button's fill, the
+  overlay's level bar, the selected onboarding step. 4.8:1 on paper.
+- **Crayon Hover** (#AE3A25) and **Crayon Pressed** (#9C331F): the darker fills
+  of a pressed or hovered primary. Never lighten on hover — a fill must stay
+  darker than the paper it sits on.
 
 ### Neutral
-- **Enamel** (#22282E): the window ground — flat, matte, unbudging.
-- **Plate** (#262D34): the lifted surface of the capability plate and every field-row card.
-- **Well** (#1D2329): recessed interiors — search fields, pickers, the model filter.
-- **Silk** (#E9EBE4): primary ink and the legends; the 1px field grid is silk at 26 %, strong frames at 55 %.
-- **Muted Steel** (#9AA39B): keys, hints, secondary lines. 5.7:1 on the ground, above AA.
+- **Paper** (#FBF7EE): the window ground.
+- **Sheet** (#FFFDF6): cards, model rows, the capability plate — one step
+  lighter than the paper, so a sheet reads as a page laid on the desk.
+- **Well** (#F1EADA): recessed interiors — the search field, pickers, an inset
+  region inside a sheet.
+- **Rule** (#E7DECB) and **Rule Strong** (#C9BCA3): the 1px hairline around a
+  sheet and the heavier line of a hovered field.
+- **Ink** (#2C2721): all text. 13.8:1 on paper.
+- **Muted** (#665E52): keys, explanations, secondary lines. 6.0:1 on paper.
 
 ### Semantic
-- **Run Green** (#6FAF74): verified, resident, bound, ok. 5.7:1 on the ground.
-- **Fault Ink** (#E07361): failure text, 4.8:1 — the light shade failures are *read* in.
-- **Stop Red** (#C14B3A): failure frames and bars, never body text.
+- **Done** (#2E6B45): verified, resident, ready, a passing check.
+- **Caution** (#8A5A12): the model/language mismatch.
+- **Failure** (#8E2A20): failure text, 7.9:1 — always this ink, never the fill.
+- **Failure Fill** (#A62B21): failure frames and the overlay's error bar.
 
 ### Named Rules
-**The Signal-Only Rule.** Exactly one saturated colour exists. It marks what can be acted on and what demands attention; if an element is neither, it is silk, muted steel or nothing.
+**The One Crayon Rule.** Exactly one saturated accent exists. If an element is
+neither live nor the primary action, it is ink, muted or a hairline.
 
-**The Legible-Failure Rule.** Failure text always uses Fault Ink, never Stop Red; Stop Red only frames. A failure must stay readable before it may look severe.
+**The Word-Before-Colour Rule.** A state is named in words and *then* toned. A
+list where every row carries an attention colour has no attention left to spend
+on the row that needs it — so "Not downloaded" is grey, and only "Ready",
+"Downloading" and "Failed" carry ink.
 
 ## Typography
 
-**Display/Legend Font:** Barlow Condensed SemiBold (embedded, SIL OFL 1.1)
-**Body Font:** Inter Regular (embedded, SIL OFL 1.1)
-**Data Font:** the system monospace, for paths, sizes, chords, commands
+**One face:** Atkinson Hyperlegible (embedded, SIL OFL 1.1), drawn by the Braille
+Institute for maximum letter distinction. Regular carries prose, values and
+labels; Bold carries titles, headings, names, key chords and every control label.
 
-**Character:** The condensed legend face does the talking — short, tracked, always upper-case, like silk-screen stencils on equipment; Inter carries sentences and values at a working size. The pairing reads as a machine label next to a printed field, never as a document.
+**Data face:** the system monospace, for file sizes, paths, SHA-256 digests and
+commands — never for prose or for tone.
 
 ### Hierarchy
-- **Title/legend** (600, 24px, 1.2): surface titles ("SET UP LITTERA"), upper-case.
-- **Legend** (600, 18px, 1.2): section headings ("MODEL", "HOTKEY"), upper-case.
-- **Key** (600, 15px): field keys and state captions ("BACKEND", "NOT DOWNLOADED"), upper-case, muted unless toned.
-- **Body** (400, 17px): values, ledes, placard text; sentence case.
-- **Identifier** (400, 15px): paths, model files, chords, percentages — monospace, silk.
-
-Condensed caps are set a step above the value size: at the same pixel size they read smaller than sentence-case body text.
+- **Title** (700, 26px, 1.25): the surface title ("Set up Littera").
+- **Heading** (700, 20px, 1.25): a section name ("Model", "Hotkey").
+- **Lead** (700, 19px, 1.5): the readiness sentence and every key chord.
+- **Body** (400, 17px, 1.5): values, explanations, placard text.
+- **Control** (700, 15px): button and chip labels.
+- **Caption** (400, 14px): field keys, metadata, hints.
 
 ### Named Rules
-**The Stencil-Caps Rule.** Anything that labels, names a section, or reports a state is upper-case in the legend face. Anything that is a sentence stays in Inter at sentence case.
+**The Sentence-Case Rule.** Nothing is set in upper case. A label reads like a
+word a person says: "Microphone", "Not downloaded", "Change keys".
 
-**The Data-Is-Mono Rule.** Monospace is reserved for identifiers, measurements and commands; it is never a costume for technical tone.
+**The Weight-Not-Size Rule.** A new level of emphasis is a weight step or more
+space; the scale has five steps and does not grow.
 
 ## Layout
 
-One scrolling column per window, 24px outer padding, sections separated by 32px and their content by 12px — more air above a heading than below it. Every setting is its own section with its own legend heading; nothing that is a separate setting hangs off the end of a list or a neighbouring card. Field rows lock their key in a 96px label column and align the value beside it, so a plate reads as a grid without drawing one. The Settings window is 900×720 (minimums 620×480); onboarding 820×660; the problems notice 560×620. The overlay pill is a fixed 560×112 floating 48px above the bottom edge. Density is compact-instrument: 4/8/12/16/24/32 is the whole spacing scale.
+One scrolling column per window, 24px outer padding, sections separated by 36px
+and their content by 12px — more air above a heading than below it. Settings is
+900×720 (minimum 620×480), onboarding 820×660, the problems notice 560×620, and
+the overlay pill a fixed 560×112 floating 48px above the bottom edge.
+
+The capability plate is four label/value rows in a 150px label column, preceded
+by one bold sentence stating whether dictation works. A model row is two lines:
+the radio, name, size and the one action on line 1; the language summary, the
+quant chips, the state word, the quality/speed bars and "Details" on line 2. The
+name keeps the whole slot line 1 leaves it, so it wraps rather than clipping at
+620px — the state word moved to line 2 for exactly that reason. Nothing is ever
+hidden behind the window edge.
 
 ## Elevation & Depth
 
-There are no shadows in this system. Depth is declared by tone alone: ground (Enamel) → lifted plate (Plate) → recessed well (Well), each stepped a few percent in luminance, each framed by a 1px silk hairline. Nothing floats, so nothing needs a shadow; the one legacy menu shadow was removed with the world it belonged to.
-
-### Named Rules
-**The Flat-Steel Rule.** No shadow, no blur, no gradient. A surface is defined by its fill tone and its frame; if that is not enough to separate it, the tone step is wrong.
+Sheets are defined by their hairline and their tone step, not by shadow. One
+thing floats and carries a soft shadow: an open pick-list menu over the content
+it covers. The overlay card is flat paper with one hairline — it sits over other
+applications' windows, not over a page it can borrow depth from. Nothing else
+casts.
 
 ## Shapes
 
-Square by contract: controls, plates, placards, fields and scrollbars all use 0 radius, so the corners of the interface read as stamped metal. Two shapes round, and only two: the floating overlay pill (16px) and the onboarding step chips (999px pills) — small moving things that must read as floating or passable. Lamps are 7px circles; the only other circle on a surface is a radio.
+Softly rounded and consistent: 10px for controls, fields and chips; 14px for
+sheets, rows and placards; 16px for the overlay; fully round only for radio
+dots, the level bar and the onboarding step chips. Hairlines are 1px; a live row
+thickens its frame to 1.5px rather than changing its fill.
 
 ### Named Rules
-**The Square-Stamp Rule.** Radius 0 is the default for anything that sits in a panel. Anything rounded must be small, floating or transient; if it is none of those, it is a defect.
+**The No-Card-Inside-A-Card Rule.** A grouped block inside a sheet is an inset: a
+hairline with no fill of its own. A card inside a card is a defect.
 
 ## Components
 
 ### Buttons
-- **Shape:** square (0 radius), 1px frame, 8px/16px padding, legend caps at 13px.
-- **Primary:** transparent fill, signal frame and ink; hover fills Signal Amber with enamel ink; pressed uses the deep signal.
-- **Secondary:** transparent fill, silk frame at 55 %, silk ink; hover adds a 7 % silk wash.
-- **Link:** no frame, muted steel ink, signal on hover — for identifiers that open something.
-- **Disabled:** frame and ink drop to a 20 % silk whisper; never a filled ghost card.
+- **Primary:** crayon fill, paper-on-crayon ink, 10px radius, 10px/18px padding,
+  control type. Hover and pressed darken the fill.
+- **Secondary:** sheet fill, ink text, `Rule Strong` hairline; hover switches the
+  fill to the well tone.
+- **Chip:** a quiet control at 2px/8px padding. Selected chips carry crayon ink
+  and a crayon frame on a sheet — a chosen value must not look like the primary
+  action.
+- **Disabled:** the hairline drops to `Rule` and the ink to `Muted`; the control
+  never keeps an active-looking fill.
 
-### Plates
-- **Corner Style:** square.
-- **Background:** Plate tone, 1px frame at 55 % silk.
-- **Signature:** the capability plate frames itself twice — an outer strong frame, 4px in, an inner hairline — the nameplate's double edge.
-- **Internal Padding:** 12px inside the inner frame.
-- **Elevation:** none; see Flat-Steel.
+### Sheets and insets
+- **Sheet:** `Sheet` fill, 1px `Rule`, 14px radius, 16px padding. The live sheet
+  adds a 1.5px crayon frame and keeps the same fill.
+- **Inset:** a hairline with no fill and 12px padding, for a block inside a sheet.
 
 ### Fields
-- **Style:** Well fill, 1px hairline frame, square, 8px/10px padding, body type.
-- **Focus:** the frame turns Signal Amber; hover widens the hairline to 55 % silk.
-- **Radios:** standard control, signal dot, silent ring — the control itself stays platform-shaped inside the square world.
+- **Style:** `Well` fill, 1px `Rule`, 10px radius, body type, 10px/18px padding.
+- **Focus:** the frame turns crayon; hover turns it `Rule Strong`.
+- **Radios:** a crayon dot in a `Rule Strong` ring; the ring turns crayon on
+  hover.
 
 ### Placards
-- **Style:** the tone's wash at 10 %, a 1px frame in the same tone at 70 %, tone ink, square, 12px padding.
-- **Tone:** info and caution use Signal Amber; success uses Run Green; failures frame in Stop Red while their text stays in Fault Ink.
-- **Rule:** a placard is always fully framed. No edge bars, no stripes, no icon.
+- **Style:** the tone's wash at 8%, a 1px frame in the tone at 32%, the tone's
+  ink, 10px radius, 12px/16px padding. A placard is always fully framed.
+- **Use:** a placard warns about one thing — its sentence names the cause and,
+  where the fix is a literal command, a monospace line carries it (the hotkey
+  binding in Settings). A list of failed checks is rows, not placards; there the
+  remedy is prose (see System-check rows).
 
-### Lamps
-- **Style:** a 7px filled circle in the field it reports; the designed-off state is a hollow 1px ring, never a dimmed dot.
-- **Use:** one per capability-plate field (model load state, backend, device, hotkey) and one per model row, where it states the artifact's state — solid in the state's tone, the hollow ring for "on disk, not checked yet".
+### List rows (model list)
+- **Line 1:** radio, name at the lead step in regular weight (it wraps instead of
+  clipping), size in mono, then the one action the state allows.
+- **Line 2:** the language summary, the quant chips, the state in words, the
+  Quality/Speed bars in their own slot, and "Details"/"Hide".
+- **Selected:** the same sheet behind a 1.5px crayon frame; the row never
+  changes its fill.
+- **Expansion:** grows in place with the published measurements and the catalog
+  record; the page scroll remains the only scroll.
 
-### Icons
-- **Style:** drawn marks on a 16-unit grid, 1.5-unit strokes, square-proportioned and unrounded (`src/ui_icons.rs`), rendered with iced's canvas in the palette's role ink — silk for secondary, signal for the primary control, dimmed when a control is unavailable. Six marks carry the whole vocabulary: chevron down/up (disclosure), download arrow (fetch), tick (verify), cross (cancel), cycle (retry).
-- **Use:** icon-only controls, always with their word in a tooltip; a state is never stated by an icon alone — the state caption beside it does the naming. Hand-drawn geometry only: no font glyphs, no framework icon set, no bitmap assets.
-- **Sizing:** 18px box on the lifted type ladder, one icon per control at the row's right edge.
+### Capability plate
+One sheet, four rows: Model, Backend, Microphone, Hotkey. Each value is a bold
+worded statement — "Loads with the next dictation", "Ctrl + Super". No lamps: a
+dot beside a word the reader has just read is one signal too many.
 
-### List Rows (model list)
-- **Style:** one two-line field row per entry (`.spec/model-list-field-rows.md`): line 1 the identity and state — radio, name in the value face, download size in mono, the state's lamp and its one icon control (download / tick / cross / cycle, tooltip-worded); the state is never spelled out — the lamp's tone and the mark carry it, the word waits in the tooltip; line 2 the facts and the disclosure — the language summary, the quant chips as stamped mini-buttons, the language marker, then the Quality/Speed bars in their own slot and the chevron that opens the detail. The bar slot is anchored to the row's right edge, so the two bars stand on one axis across every row whatever the summary and the quants measure before them.
-- **Selected:** the same row behind a 1.5px signal frame — selection is a frame, not a fill. The active model's row is pinned as the list's first row and not repeated in the sorted remainder.
-- **Expansion:** the chevron grows the row in place (one row at a time) with the published values and the catalog record the row leaves out — parameter count, license, datasets, reference machine, file, SHA-256, URL. Never an inner scroll area: the page scroll is the only scroll.
-- **Narrow widths:** the fact line wraps rather than clipping; the label and the language summary give up width first, so state, controls and the disclosure stay reachable at the window minimum (620×480).
+### System-check rows (problems notice)
+- **Style:** an outline row per failed check — hairline, no fill — carrying a
+  toned "Needs a fix" tag, the check's name in bold, its detail as prose, and a
+  labelled "Fix" line in the reading face. A failure earns a placard only when it
+  is a warning about one thing; three stacked failures read better as rows.
+- **Re-check** is the view's primary action, **Close** the secondary one.
 
-### Overlay Pill
-- **Style:** the one floating surface, and the only surface where a rounded corner and a
-  translucent fill are the point — Plate tone at 90 % over whatever it covers, 16px radius,
-  no frame, no shadow, 20px side inset with the status line 16px from the top edge.
-- **Content:** a legend-caps status line (15px, Muted Steel — Fault Ink when the state is an
-  error), the streaming transcript below it in Inter at 17px, wrapped and elided after two
-  lines, and an 8px fully-rounded level bar 20px above the bottom edge: Signal Amber, Fault
-  Ink while the state is an error, no track, growing from the left.
-- **Status line:** single-line and elided while a transcript sits below it — those rows belong
-  to the speech; with no transcript (errors, notices) it wraps onto the free second row,
-  because a cut-off recovery is worse than a longer notice.
+### Overlay pill
+The one floating surface: a paper card at 96 % over whatever it covers, one
+hairline so it exists on a white page, 16px radius, 20px side inset. A bold muted
+status line ("Listening… 0:07"), the streaming transcript in body type, and a
+6px fully-rounded level bar in crayon — failure ink while the state is an error.
 
 ## Do's and Don'ts
 
 ### Do:
-- **Do** state every capability the machine owns in the plate, with a lamp whose colour is the truth of that moment.
-- **Do** stamp controls: legend caps, square frames, hover fills.
-- **Do** keep failure text in Fault Ink and reserve Stop Red for frames.
-- **Do** set keys, identifiers and percentages in their own faces — legend caps and mono — instead of styling prose.
-- **Do** leave whitespace between a state and its action: the caption left, the button right.
+- **Do** open a surface with one plain sentence that answers why it is open.
+- **Do** state a state in words, then tone it.
+- **Do** set sizes, paths, digests and file names in mono, and a command only
+  where it is meant to be run verbatim.
+- **Do** keep one primary action per view.
+- **Do** leave more space above a heading than below it.
 
 ### Don't:
-- **Don't** round a plate, a field, a button or a placard — radius 0 is the contract.
-- **Don't** introduce a second saturated colour, a gradient, a glow or a shadow.
-- **Don't** use glyphs or emoji as icons; draw the mark on the icon grid or speak the word. An icon-only control keeps its word in a tooltip, and a row's state is read from its lamp beside the mark, never spelled out in the row.
-- **Don't** stripe an alert; a placard carries its meaning in its frame and wash.
-- **Don't** let a disabled control look interactive, and never dim a lamp to hide a state — draw it hollow.
-- **Don't** run monospace outside data, and never upper-case prose.
+- **Don't** set anything in upper case, or reach for a condensed face.
+- **Don't** add a second accent colour, a gradient, a glow or a shadow on a
+  sheet.
+- **Don't** nest a card inside a card — use an inset.
+- **Don't** hide an action's word behind a tooltip.
+- **Don't** use a bigger type size for emphasis; add weight or space.

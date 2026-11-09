@@ -34,8 +34,7 @@ use crate::config::{self, Config, IdleUnload, Language};
 use crate::hotkey;
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
-use crate::ui::{self, Message, Tone, metrics, palette, style};
-use crate::ui_icons::{self, Icon};
+use crate::ui::{self, Message, Tone, metrics, style};
 
 /// Actions the settings surface can produce.
 #[derive(Debug, Clone)]
@@ -140,11 +139,14 @@ impl SortOrder {
 /// row's fact line is the scan layer, the numbers live in the detail
 /// (`model-list-field-rows` FR-001).
 const INDICATOR_BAR_WIDTH: f32 = 44.0;
+/// The padding of a row's worded controls: the same square rhythm as a chip,
+/// wide enough that "Download" and "Details" never crowd the row edge.
+const ROW_BUTTON_PADDING: [f32; 2] = [metrics::SPACE_XS, metrics::SPACE_MD];
 /// The compact padding of a row's quant chip.
 const CHIP_PADDING: [f32; 2] = [2.0, metrics::SPACE_SM];
 /// The width of a running transfer's bar in a row's identity line.
 const TRANSFER_BAR_WIDTH: f32 = 96.0;
-const INDICATOR_BAR_HEIGHT: f32 = 4.0;
+const INDICATOR_BAR_HEIGHT: f32 = 6.0;
 /// The dash a quant without a published measurement shows (SC-007).
 const NO_MEASUREMENT: &str = "—";
 
@@ -409,7 +411,7 @@ pub fn view(app: &App) -> Element<'_, Action> {
 }
 
 /// Why the device listener is bound although the desktop offers the shortcut
-/// portal (FR-008). Without this the refusal is only in the log, and "Bind…"
+/// portal (FR-008). Without this the refusal is only in the log, and "Change keys"
 /// looks like it did nothing.
 fn portal_takeover_note(binding: Option<&hotkey::Binding>) -> Option<String> {
     let detail = binding?.portal_detail.as_ref()?;
@@ -454,15 +456,15 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     }
 
     let mut details = column![
-        row![ui::key::<Action>("Chord"), ui::chord(config.hotkey.clone())]
+        row![ui::key::<Action>("Keys"), ui::chord(config.hotkey.clone())]
             .spacing(metrics::SPACE_SM)
             .align_y(iced::Alignment::Center),
     ]
     .spacing(metrics::SPACE_SM);
 
     if let Some(active) = &app.binding {
-        details = details.push(ui::lead::<Action>(format!(
-            "Active mechanism: {} — {}",
+        details = details.push(ui::muted::<Action>(format!(
+            "Handled by {} — {}",
             active.source.label(),
             active.trigger_description
         )));
@@ -496,7 +498,7 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
         ui::banner(preview, Tone::Info)
     } else {
         row![
-            button(ui::stamp("Bind…"))
+            button(ui::stamp("Change keys"))
                 .style(style::primary_button)
                 .padding(metrics::BUTTON_PADDING)
                 .on_press(Action::StartCapture),
@@ -561,53 +563,23 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     .into()
 }
 
-/// The capability plate (FR-005/FR-022): the machine's current truth, stamped
-/// once — model, backend, device and hotkey as label/value fields with one
-/// state lamp each. A fallback or a load failure keeps its reason in a placard
-/// under the frame; nothing here is ever a stale line.
+/// The capability plate (FR-005/FR-022): the machine's current truth, stated
+/// once as label/value fields — model, backend, microphone and hotkey, each
+/// value already worded. A fallback or a load failure keeps its reason in a
+/// placard under the frame; nothing here is ever a stale line.
 fn capability_plate(app: &App) -> Element<'_, Action> {
     let config = app.cfg.snapshot();
     let selection = app.model;
-    // The plate states the engine's line in its own short form; the pinned
-    // lifecycle strings stay with `model_state_line` (and its tests), whose note
-    // is the only part the plate reuses.
+    // The plate states the engine's line in plain words; the pinned lifecycle
+    // strings stay with `model_state_line`, whose note is the only part the plate
+    // reuses.
     let backend_text = match &app.model_status {
-        crate::app::ModelStatus::Resident(info) => format!("{} — {}", info.backend, info.device),
+        crate::app::ModelStatus::Resident(info) => format!("{} on {}", info.backend, info.device),
         crate::app::ModelStatus::Loading => "Loading…".to_owned(),
-        crate::app::ModelStatus::Failed(_) => "Load failed".to_owned(),
-        crate::app::ModelStatus::NotResident => {
-            "Not loaded — the next dictation loads it".to_owned()
-        }
+        crate::app::ModelStatus::Failed(_) => "Could not load".to_owned(),
+        crate::app::ModelStatus::NotResident => "Loads with the next dictation".to_owned(),
     };
     let note = ui::model_state_line(&app.model_status, &selection.label()).note;
-
-    let model_lamp: Element<'_, Action> = match app.model_status {
-        crate::app::ModelStatus::Resident(_) => ui::lamp(Tone::Success),
-        crate::app::ModelStatus::Loading => ui::lamp(Tone::Warning),
-        crate::app::ModelStatus::Failed(_) => ui::lamp(Tone::Error),
-        crate::app::ModelStatus::NotResident => ui::lamp_off(),
-    };
-    let backend_lamp: Element<'_, Action> = match &app.model_status {
-        crate::app::ModelStatus::Resident(info) if info.fallback.is_some() => {
-            ui::lamp(Tone::Warning)
-        }
-        crate::app::ModelStatus::Resident(_) => ui::lamp(Tone::Success),
-        crate::app::ModelStatus::Loading => ui::lamp(Tone::Warning),
-        crate::app::ModelStatus::Failed(_) => ui::lamp(Tone::Error),
-        crate::app::ModelStatus::NotResident => ui::lamp_off(),
-    };
-    let device_lamp: Element<'_, Action> = if config.input_device.is_empty() {
-        ui::lamp(Tone::Error)
-    } else {
-        ui::lamp(Tone::Success)
-    };
-    let hotkey_lamp: Element<'_, Action> = if app.binding.is_some() {
-        ui::lamp(Tone::Success)
-    } else if app.hotkey_error.is_some() {
-        ui::lamp(Tone::Error)
-    } else {
-        ui::lamp(Tone::Warning)
-    };
 
     let device = if config.input_device == config::INPUT_DEVICE_SYSTEM {
         "System default".to_owned()
@@ -615,41 +587,52 @@ fn capability_plate(app: &App) -> Element<'_, Action> {
         config.input_device.clone()
     };
     let hotkey = match &app.binding {
-        Some(binding) => format!("{} · {}", config.hotkey, binding.source.label()),
-        None => format!("{} · not bound", config.hotkey),
+        Some(_) => ui::chord_words(&config.hotkey),
+        None if app.hotkey_error.is_some() => {
+            format!("{} — not working", ui::chord_words(&config.hotkey))
+        }
+        None => format!("{} — not set up", ui::chord_words(&config.hotkey)),
     };
 
-    let fields = row![
-        column![
-            plate_field(model_lamp, "Model", ui::strong::<Action>(selection.label())),
-            plate_field(backend_lamp, "Backend", ui::mono::<Action>(backend_text)),
-        ]
-        .spacing(metrics::SPACE_SM)
-        .width(Length::Fill),
-        column![
-            plate_field(device_lamp, "Device", ui::mono::<Action>(device)),
-            plate_field(hotkey_lamp, "Hotkey", ui::mono::<Action>(hotkey)),
-        ]
-        .spacing(metrics::SPACE_SM)
-        .width(Length::Fill),
-    ]
-    .spacing(metrics::SPACE_XL);
+    // One sentence the whole plate exists to answer: can I dictate right now?
+    let readiness: String = match &app.model_status {
+        crate::app::ModelStatus::Failed(_) => {
+            "The model could not load — the note below says why.".to_owned()
+        }
+        _ if app.binding.is_none() => {
+            "Dictation is not set up yet — bind a key in the Hotkey section.".to_owned()
+        }
+        crate::app::ModelStatus::Resident(_) => format!(
+            "Ready. Press {} and speak — the text lands where your cursor is.",
+            ui::chord_words(&config.hotkey)
+        ),
+        _ => format!(
+            "Ready. Press {} and speak; the model loads with the first dictation.",
+            ui::chord_words(&config.hotkey)
+        ),
+    };
 
-    let mut plate = column![ui::plate(fields)].spacing(metrics::SPACE_MD);
+    // No lamps: each value already says its state in words, and a dot beside a
+    // word the reader has just read is one signal too many.
+    let fields = column![
+        plate_field("Model", ui::strong::<Action>(selection.label())),
+        plate_field("Backend", ui::strong::<Action>(backend_text)),
+        plate_field("Microphone", ui::strong::<Action>(device)),
+        plate_field("Hotkey", ui::strong::<Action>(hotkey)),
+    ]
+    .spacing(metrics::SPACE_MD);
+
+    let mut plate =
+        column![ui::headline::<Action>(readiness), ui::plate(fields)].spacing(metrics::SPACE_MD);
     if let Some((note, tone)) = note {
         plate = plate.push(ui::banner(note, tone));
     }
     plate.into()
 }
 
-/// One plate field: the lamp, the key locked in the label column, the value.
-fn plate_field<'a>(
-    lamp: Element<'a, Action>,
-    label: &str,
-    value: Element<'a, Action>,
-) -> Element<'a, Action> {
+/// One plate field: the key in its label column, the value beside it.
+fn plate_field<'a>(label: &str, value: Element<'a, Action>) -> Element<'a, Action> {
     row![
-        lamp,
         container(ui::key::<Action>(label)).width(Length::Fixed(metrics::FIELD_LABEL_WIDTH)),
         value,
     ]
@@ -866,7 +849,7 @@ fn chip<'a>(
 ) -> Element<'a, Action> {
     let chip = button(ui::stamp(label)).padding(metrics::BUTTON_PADDING);
     let chip = if selected {
-        chip.style(style::primary_button)
+        chip.style(style::chip_active)
     } else {
         chip.style(style::secondary_button)
     };
@@ -950,7 +933,11 @@ fn field_row(
     // size's place so line 2 keeps every static fact. The tags are the row's
     // short forms; the sentences live in the model card and in onboarding.
     let state = ui::model_state(app, selection, verified);
-    let (lamp, mark, label, primary) = state_faces(&state);
+    let (label, primary) = state_faces(&state);
+    // Only the active model's action is the primary one: eight filled crayon
+    // buttons down the list would leave none of them meaning "do this first".
+    let primary = primary && is_active;
+    let (state_word, state_tone) = state_words(&state);
     let message = match &state {
         ui::ModelState::Downloading { .. } | ui::ModelState::Verifying => {
             Some(Action::CancelDownload)
@@ -974,23 +961,21 @@ fn field_row(
         ui::ModelState::Failed(error) => Some(error.clone()),
         _ => None,
     };
-    // The control is an icon-only button (FR-012): the row's state tag states the
-    // state, the mark carries the action, the tooltip keeps the word.
-    let control = ui_icons::icon_button(
-        mark,
-        if primary {
-            palette::ACCENT
-        } else {
-            palette::TEXT
-        },
-        message,
-        label,
-        if primary {
-            style::primary_button
-        } else {
-            style::secondary_button
-        },
-    );
+    // The control says its word (FR-012). An icon plus a tooltip would hide the
+    // action behind a decode step on the one row the reader is trying to act on.
+    let control: Element<'_, Action> = {
+        let mut action = button(ui::stamp(label))
+            .padding(ROW_BUTTON_PADDING)
+            .style(if primary {
+                style::primary_button
+            } else {
+                style::secondary_button
+            });
+        if let Some(message) = message {
+            action = action.on_press(message);
+        }
+        action.into()
+    };
 
     // The label takes the width the state's facts leave and clips inside it, so
     // the size, the tag and the control keep the row's right edge and its padding
@@ -1010,7 +995,6 @@ fn field_row(
         .width(Length::Fill)
         .clip(true),
         state_fact,
-        state_lamp(lamp),
         control,
     ]
     .spacing(metrics::SPACE_SM)
@@ -1024,7 +1008,7 @@ fn field_row(
             button(ui::stamp(quant))
                 .padding(CHIP_PADDING)
                 .style(if selected {
-                    style::primary_button
+                    style::chip_active
                 } else {
                     style::secondary_button
                 })
@@ -1035,10 +1019,21 @@ fn field_row(
         );
     }
 
-    let mut facts = row![ui::muted::<Action>(meta_line(variant)), quants]
-        .spacing(metrics::SPACE_MD)
-        .align_y(iced::Alignment::Center)
-        .width(Length::Fill);
+    // The state word rides the fact line, not the identity line: the name gets
+    // the whole slot and never clips at the 620 px minimum (FR-008).
+    let state_element: Element<'_, Action> = match state_tone {
+        Some(tone) => ui::state_tag::<Action>(state_word, tone),
+        None => ui::muted::<Action>(state_word),
+    };
+
+    let mut facts = row![
+        ui::muted::<Action>(meta_line(variant)),
+        quants,
+        state_element
+    ]
+    .spacing(metrics::SPACE_MD)
+    .align_y(iced::Alignment::Center)
+    .width(Length::Fill);
     if let Some(marker) = warning_marker(variant, language) {
         facts = facts.push(ui::state_tag::<Action>(marker, Tone::Warning));
     }
@@ -1052,21 +1047,10 @@ fn field_row(
     let facts_line = row![
         facts.wrap().vertical_spacing(metrics::SPACE_SM),
         indicators(selection, language, best_wer, best_xrt),
-        ui_icons::icon_button(
-            if expanded {
-                Icon::ChevronUp
-            } else {
-                Icon::ChevronDown
-            },
-            palette::TEXT,
-            Some(Action::ToggleDetail(variant.id)),
-            if expanded {
-                "Hide details"
-            } else {
-                "Show details"
-            },
-            style::secondary_button,
-        ),
+        button(ui::stamp(if expanded { "Hide" } else { "Details" }))
+            .padding(ROW_BUTTON_PADDING)
+            .style(style::secondary_button)
+            .on_press(Action::ToggleDetail(variant.id)),
     ]
     .spacing(metrics::SPACE_MD)
     .align_y(iced::Alignment::Start);
@@ -1096,29 +1080,35 @@ fn field_row(
     }
 }
 
-/// The row's state, as the row states it (spec FR-004/FR-012): the lamp's tone
-/// (`None` = the hollow ring, the world's designed-off lamp), the mark and the
-/// word of the control the state allows, and whether that control is the primary
-/// one. One table, so every state reads the same way and a new state cannot slip
-/// in unmarked — the state is the lamp and the mark, its word is the control's
-/// tooltip.
-fn state_faces(state: &ui::ModelState) -> (Option<Tone>, Icon, &'static str, bool) {
+/// The row's action, as the row states it (spec FR-004/FR-012): the word of the
+/// control the state allows, and whether that control is the primary one. One
+/// table, so every state reads the same way and a new state cannot slip in
+/// unmarked; the state's own word comes from [`state_words`].
+fn state_faces(state: &ui::ModelState) -> (&'static str, bool) {
     match state {
-        ui::ModelState::Downloading { .. } => (Some(Tone::Info), Icon::Cross, "Cancel", true),
-        ui::ModelState::Verifying => (Some(Tone::Info), Icon::Cross, "Cancel", true),
-        ui::ModelState::Failed(_) => (Some(Tone::Error), Icon::Retry, "Retry", false),
-        ui::ModelState::Verified => (Some(Tone::Success), Icon::Check, "Verify", false),
-        // On disk, not checked yet: the designed-off lamp, never a dimmed dot.
-        ui::ModelState::OnDisk => (None, Icon::Check, "Verify", false),
-        ui::ModelState::NotDownloaded => (Some(Tone::Warning), Icon::Download, "Download", true),
+        ui::ModelState::Downloading { .. } => ("Cancel", true),
+        ui::ModelState::Verifying => ("Cancel", true),
+        ui::ModelState::Failed(_) => ("Retry", false),
+        ui::ModelState::Verified => ("Verify", false),
+        ui::ModelState::OnDisk => ("Verify", false),
+        ui::ModelState::NotDownloaded => ("Download", true),
     }
 }
 
-/// The lamp of a state: solid in its tone, or the hollow ring of "designed off".
-fn state_lamp<M: 'static>(tone: Option<Tone>) -> Element<'static, M> {
-    match tone {
-        Some(tone) => ui::lamp(tone),
-        None => ui::lamp_off(),
+/// The state in its own words: the row reads without decoding an icon. The
+/// control beside it says what the reader can do about the state.
+///
+/// `None` is the ordinary state of a row nobody has acted on: a plain grey word.
+/// A list where every row carries an attention colour has no attention left to
+/// spend on the row that needs it.
+fn state_words(state: &ui::ModelState) -> (&'static str, Option<Tone>) {
+    match state {
+        ui::ModelState::Downloading { .. } => ("Downloading", Some(Tone::Info)),
+        ui::ModelState::Verifying => ("Checking", Some(Tone::Info)),
+        ui::ModelState::Failed(_) => ("Failed", Some(Tone::Error)),
+        ui::ModelState::Verified => ("Ready", Some(Tone::Success)),
+        ui::ModelState::OnDisk => ("On disk", None),
+        ui::ModelState::NotDownloaded => ("Not downloaded", None),
     }
 }
 
@@ -1600,29 +1590,35 @@ mod tests {
         let faces = [
             (
                 ui::ModelState::NotDownloaded,
-                (Some(Tone::Warning), Icon::Download, "Download", true),
+                ("Download", true),
+                ("Not downloaded", None),
             ),
-            (ui::ModelState::OnDisk, (None, Icon::Check, "Verify", false)),
+            (ui::ModelState::OnDisk, ("Verify", false), ("On disk", None)),
             (
                 ui::ModelState::Verified,
-                (Some(Tone::Success), Icon::Check, "Verify", false),
+                ("Verify", false),
+                ("Ready", Some(Tone::Success)),
             ),
             (
                 ui::ModelState::Failed("sha mismatch".to_owned()),
-                (Some(Tone::Error), Icon::Retry, "Retry", false),
+                ("Retry", false),
+                ("Failed", Some(Tone::Error)),
             ),
             (
                 ui::ModelState::Verifying,
-                (Some(Tone::Info), Icon::Cross, "Cancel", true),
+                ("Cancel", true),
+                ("Checking", Some(Tone::Info)),
             ),
             (
                 ui::ModelState::Downloading { percent: 42.0 },
-                (Some(Tone::Info), Icon::Cross, "Cancel", true),
+                ("Cancel", true),
+                ("Downloading", Some(Tone::Info)),
             ),
         ];
 
-        for (state, expected) in faces {
-            assert_eq!(state_faces(&state), expected, "{state:?}");
+        for (state, face, words) in faces {
+            assert_eq!(state_faces(&state), face, "{state:?}");
+            assert_eq!(state_words(&state), words, "{state:?}");
         }
     }
 

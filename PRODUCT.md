@@ -96,9 +96,9 @@ tooling cannot truthfully claim.
 - Name: Littera.
 - Assets on hand and embedded: `assets/icon/hicolor/256x256/apps/littera.png`
   (icon; master `assets/icon/hicolor/scalable/apps/littera.svg`, tray + window)
-  and the design language's two faces — `assets/Inter-Regular.ttf` (values)
-  and `assets/BarlowCondensed-SemiBold.ttf` (legends), both SIL OFL 1.1 with
-  license text alongside.
+  and the design language's one face — `assets/AtkinsonHyperlegible-Regular.ttf`
+  and `assets/AtkinsonHyperlegible-Bold.ttf`, SIL OFL 1.1 with the license text
+  alongside.
 - Voice: user-visible failure text is actionable — cause and remedy, never
   silent; internal logs via `tracing`, never `println!`. No marketing copy
   exists and none is invented.
@@ -110,8 +110,8 @@ tooling cannot truthfully claim.
 
 - `.spec/wayland-voice-dictation.md` — the approved spec: Scenarios,
   FR-001…FR-022, SC-001…SC-010. The requirements authority for this product.
-- `DESIGN.md` + `.impeccable/design.json` — the built visual system ("The
-  Nameplate"), written from the shipped code; `.impeccable/surfaces/settings.md`
+- `DESIGN.md` + `.impeccable/design.json` — the built visual system ("The First
+  Reader"), written from the shipped code; `.impeccable/surfaces/settings.md`
   holds the chosen direction contract.
 - `README.md` — operations reference: build/runtime deps, permission matrix,
   flags, behavior, verification commands.

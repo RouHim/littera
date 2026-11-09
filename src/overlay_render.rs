@@ -28,17 +28,19 @@ pub const BOTTOM_MARGIN: i32 = 48;
 /// system.
 pub const CORNER_RADIUS: f32 = metrics::RADIUS_OVERLAY;
 
-/// The embedded value face (Inter Regular, SIL OFL 1.1 — see `assets/Inter-LICENSE.txt`).
-pub const FONT: &[u8] = include_bytes!("../assets/Inter-Regular.ttf");
+/// The embedded reading face (Atkinson Hyperlegible Regular, SIL OFL 1.1 — see
+/// `assets/AtkinsonHyperlegible-LICENSE.txt`); the transcript line is set in it.
+pub const FONT: &[u8] = include_bytes!("../assets/AtkinsonHyperlegible-Regular.ttf");
 
-/// The embedded legend face (Barlow Condensed SemiBold, SIL OFL 1.1 — see
-/// `assets/BarlowCondensed-LICENSE.txt`); the pill's status line is set in it.
-pub const FONT_LEGEND: &[u8] = include_bytes!("../assets/BarlowCondensed-SemiBold.ttf");
+/// The same face at bold: the pill's status line, one weight step louder than
+/// the transcript it labels.
+pub const FONT_BOLD: &[u8] = include_bytes!("../assets/AtkinsonHyperlegible-Bold.ttf");
 
 /// Padding between the card edge and its content.
 const PAD: f32 = 20.0;
-/// Alpha the card is drawn with over whatever is behind it (`0.90 * 255`).
-const CARD_ALPHA: u8 = 230;
+/// Alpha the card is drawn with over whatever is behind it (`0.96 * 255`): the
+/// paper must stay readable over a bright editor as well as a dark terminal.
+const CARD_ALPHA: u8 = 245;
 /// The card fill: the app surface role, mostly opaque.
 fn card_rgba() -> (u8, u8, u8, u8) {
     let (r, g, b) = palette::rgb8(palette::SURFACE);
@@ -72,7 +74,7 @@ const MAX_STATUS_LINES: usize = 2;
 const STATUS_TOP: f32 = 16.0;
 /// Top edge of the transcript box (two lines of [`TEXT_LINE_HEIGHT`]).
 const TEXT_TOP: f32 = 40.0;
-const LEVEL_HEIGHT: f32 = 8.0;
+const LEVEL_HEIGHT: f32 = 6.0;
 /// Top edge of the level bar, `PAD` above the bottom edge.
 const LEVEL_TOP: f32 = OVERLAY_H as f32 - PAD - LEVEL_HEIGHT;
 
@@ -80,11 +82,9 @@ const LEVEL_TOP: f32 = OVERLAY_H as f32 - PAD - LEVEL_HEIGHT;
 const MIN_SCALE: i32 = 1;
 /// Guard against absurd buffer sizes if a caller passes a nonsense scale.
 const MAX_SCALE: i32 = 8;
-/// Family name declared by the embedded value face; only a fallback for the name
-/// read back from the font database.
-const FONT_FAMILY: &str = "Inter";
-/// Family name of the embedded legend face, same fallback rule.
-const LEGEND_FAMILY: &str = "Barlow Condensed";
+/// Family name declared by the embedded face; only a fallback for the name read
+/// back from the font database.
+const FONT_FAMILY: &str = "Atkinson Hyperlegible";
 
 /// The status line shown at the top of the card. Every literal here is a
 /// user-visible contract string.
@@ -131,18 +131,17 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     let family = cache.family.clone();
-    let legend = cache.legend.clone();
 
     // Status line in the legend face. With a transcript below it the line stays
     // single and elides; without one (errors, notices) it may wrap onto the free
     // second row, because a cut-off recovery is worse than a longer notice. An
     // error speaks in its own ink, like the placards.
-    let status = state_line(&frame.state, frame.elapsed).to_uppercase();
+    let status = state_line(&frame.state, frame.elapsed);
     let status_rgb = match frame.state {
         OverlayState::Error(_) => palette::rgb8(palette::ERROR),
         _ => status_rgb(),
     };
-    let status_attrs = text_attrs(&legend, status_rgb);
+    let status_attrs = text_attrs(&family, status_rgb, cosmic_text::Weight::BOLD);
     let status_metrics = Metrics::new(STATUS_FONT_SIZE * scale_px, STATUS_LINE_HEIGHT * scale_px);
     let status_lines = if frame.text.is_empty() {
         MAX_STATUS_LINES
@@ -163,7 +162,7 @@ pub fn render(frame: &OverlayFrame, scale: i32) -> Result<Pixmap> {
 
     // Streaming transcript: word-wrapped to two lines, elided with "…" beyond.
     if !frame.text.is_empty() {
-        let stream_attrs = text_attrs(&family, text_rgb());
+        let stream_attrs = text_attrs(&family, text_rgb(), cosmic_text::Weight::NORMAL);
         let stream_metrics = Metrics::new(TEXT_FONT_SIZE * scale_px, TEXT_LINE_HEIGHT * scale_px);
         let mut stream_buffer = Buffer::new(&mut cache.font_system, stream_metrics);
         stream_buffer.set_size(Some(content_width), None);
@@ -193,14 +192,19 @@ fn rgb(color: (u8, u8, u8)) -> Color {
     Color::rgb(color.0, color.1, color.2)
 }
 
-fn text_attrs(family: &str, color: (u8, u8, u8)) -> Attrs<'_> {
-    Attrs::new().family(Family::Name(family)).color(rgb(color))
+fn text_attrs(family: &str, color: (u8, u8, u8), weight: cosmic_text::Weight) -> Attrs<'_> {
+    Attrs::new()
+        .family(Family::Name(family))
+        .weight(weight)
+        .color(rgb(color))
 }
 
 fn draw_card(pixmap: &mut Pixmap, scale: f32) {
     let width = pixmap.width() as f32;
     let height = pixmap.height() as f32;
-    let Some(rect) = Rect::from_xywh(0.0, 0.0, width, height) else {
+    // Inset by half the hairline so the stroke stays inside the pixmap.
+    let inset = scale / 2.0;
+    let Some(rect) = Rect::from_xywh(inset, inset, width - scale, height - scale) else {
         return;
     };
     let Some(path) = rounded_rect_path(rect, CORNER_RADIUS * scale) else {
@@ -217,6 +221,17 @@ fn draw_card(pixmap: &mut Pixmap, scale: f32) {
         Transform::identity(),
         None,
     );
+
+    // One hairline: a paper card over a white document needs an edge to exist.
+    let (r, g, b) = palette::rgb8(palette::BORDER);
+    let mut hairline = Paint::default();
+    hairline.set_color_rgba8(r, g, b, 200);
+    hairline.anti_alias = true;
+    let stroke = tiny_skia::Stroke {
+        width: scale,
+        ..tiny_skia::Stroke::default()
+    };
+    pixmap.stroke_path(&path, &hairline, &stroke, Transform::identity(), None);
 }
 
 fn draw_level_bar(pixmap: &mut Pixmap, frame: &OverlayFrame, scale: f32, content_width: f32) {
@@ -290,10 +305,8 @@ fn rounded_rect_path(rect: Rect, radius: f32) -> Option<tiny_skia::Path> {
 struct FontCache {
     font_system: FontSystem,
     swash: SwashCache,
-    /// Family name of the embedded value face, read back from the database.
+    /// Family name of the embedded face, read back from the database.
     family: String,
-    /// Family name of the embedded legend face, same rule.
-    legend: String,
 }
 
 static FONT_CACHE: LazyLock<Mutex<FontCache>> =
@@ -302,13 +315,12 @@ static FONT_CACHE: LazyLock<Mutex<FontCache>> =
 impl FontCache {
     fn load_embedded_font() -> Self {
         let mut font_system = FontSystem::new();
-        let (family, legend) = embedded_families(&mut font_system);
-        tracing::debug!(family = %family, legend = %legend, "overlay fonts ready");
+        let family = embedded_family(&mut font_system);
+        tracing::debug!(family = %family, "overlay fonts ready");
         Self {
             font_system,
             swash: SwashCache::new(),
             family,
-            legend,
         }
     }
 
@@ -346,29 +358,20 @@ impl FontCache {
     }
 }
 
-/// Load the embedded faces and read their family names back from the database,
-/// so neither name is hard-coded twice.
-fn embedded_families(font_system: &mut FontSystem) -> (String, String) {
+/// Load the embedded faces and read the family name back from the database, so
+/// the name is not hard-coded twice.
+fn embedded_family(font_system: &mut FontSystem) -> String {
     let database = font_system.db_mut();
     database.load_font_data(FONT.to_vec());
-    database.load_font_data(FONT_LEGEND.to_vec());
-    let mut value = None;
-    let mut legend = None;
+    database.load_font_data(FONT_BOLD.to_vec());
     for face in database.faces() {
-        let Some((name, _)) = face.families.first() else {
-            continue;
-        };
-        if name == FONT_FAMILY {
-            value = Some(name.clone());
-        }
-        if name == LEGEND_FAMILY {
-            legend = Some(name.clone());
+        if let Some((name, _)) = face.families.first()
+            && name == FONT_FAMILY
+        {
+            return name.clone();
         }
     }
-    (
-        value.unwrap_or_else(|| FONT_FAMILY.to_owned()),
-        legend.unwrap_or_else(|| LEGEND_FAMILY.to_owned()),
-    )
+    FONT_FAMILY.to_owned()
 }
 
 #[cfg(test)]
