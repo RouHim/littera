@@ -1,0 +1,67 @@
+{
+  "skill_name": "readme-writer",
+  "evals": [
+    {
+      "id": 0,
+      "name": "littera-user-rewrite",
+      "prompt": "Rewrite the README in this repository for end users. It is too long and has no screenshot. I put a current screenshot of the settings window at screenshot.png in the repository root; use it. I approve the short outline, so write it now.",
+      "expected_output": "A short user-facing README with the supplied screenshot after the pitch, user install and usage steps, and moved developer detail.",
+      "files": ["screenshot.png"],
+      "expectations": [
+        "README.md exists and is a Markdown README",
+        "A non-banner image appears after the pitch and before the requirements heading, and its file exists",
+        "Requirements, install, usage, troubleshooting and license headings appear in that order, with license last",
+        "Prose is under 500 words",
+        "The README contains no em dashes and no placeholders",
+        "The install section contains a fenced code block",
+        "Every relative image and link path resolves"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "gui-with-screenshot",
+      "prompt": "Write a README for this desktop app. A current screenshot of the main window is in assets/app.png. I approve the short outline, so write it now.",
+      "expected_output": "A short user-facing README with the screenshot after the pitch, requirements, install, usage, troubleshooting and license.",
+      "files": ["assets/app.png"],
+      "expectations": [
+        "README.md exists and is a Markdown README",
+        "A non-banner image appears after the pitch and before the requirements heading, and its file exists",
+        "Requirements, install, usage, troubleshooting and license headings appear in that order, with license last",
+        "Prose is under 500 words",
+        "The README contains no em dashes and no placeholders",
+        "The install section contains a fenced code block",
+        "Every relative image and link path resolves",
+        "Architecture, build and release detail no longer appears in README.md and appears in DEVELOPMENT.md",
+        "README.md links to DEVELOPMENT.md"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "gui-without-screenshot",
+      "prompt": "Write a README for this desktop app.",
+      "expected_output": "The skill asks for a screenshot and writes no README because the GUI app has no screenshot and capture is unavailable.",
+      "files": [],
+      "expectations": [
+        "No README.md is created in the repository",
+        "The final response asks for a screenshot",
+        "No image file is created in the repository"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "cli-quickstart",
+      "prompt": "Write a README for this command-line tool.",
+      "expected_output": "A short user-facing README with a terminal output or recording instead of a GUI screenshot, install block, usage example, troubleshooting and license.",
+      "files": [],
+      "expectations": [
+        "README.md exists and is a Markdown README",
+        "Requirements, install, usage, troubleshooting and license headings appear in that order, with license last",
+        "The usage section contains a fenced code block",
+        "Prose is under 500 words",
+        "The README contains no em dashes and no placeholders",
+        "Every relative link resolves",
+        "No GUI screenshot is required or invented"
+      ]
+    }
+  ]
+}

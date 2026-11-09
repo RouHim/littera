@@ -96,6 +96,9 @@ jobs:
           archive="littera-$VERSION-x86_64.tar.gz"
           tar -C dist -czf "$archive" "littera-$VERSION-x86_64"
           sha256sum "$archive" | cut -d' ' -f1 > "$archive.sha256"
+          # The AUR recipe installs from icons/hicolor; a flat icons/ tree
+          # breaks package() and is invisible to a checksum check.
+          tar tzf "$archive" | grep -q 'icons/hicolor/16x16/apps/littera.png'
           echo "sha256=$(cat "$archive.sha256")" >> "$GITHUB_OUTPUT"
           # The AUR package declares the glibc it was actually built against,
           # so pacman refuses the install on a system older than this build.
@@ -140,6 +143,10 @@ jobs:
           useradd --create-home builder
           chown -R builder:builder aur-build
           su builder -c "cd '$PWD/aur-build' && makepkg --printsrcinfo > .SRCINFO"
+          # Build the recipe once before publishing it: downloads the release
+          # asset, verifies its checksum and runs package(). A broken recipe
+          # must fail here, not in every user's yay.
+          su builder -c "cd '$PWD/aur-build' && makepkg -f --nodeps --noconfirm"
           chown -R root:root aur-build
       # The rendered files are uploaded for inspection and for a manual replay;
       # the push below is what actually creates the package on a first release.
