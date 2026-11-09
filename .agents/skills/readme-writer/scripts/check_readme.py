@@ -25,15 +25,25 @@ HTML_TAG = re.compile(r"<[^>]+>")
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'_-]*")
 TABLE_RULE = re.compile(r"^\s*\|?[\s:|-]+\|?\s*$")
 
-PLACEHOLDERS = ("todo", "tbd", "fixme", "placeholder", "screenshot here", "lorem ipsum")
+PLACEHOLDERS = (
+    r"\btodo\b",
+    r"\btbd\b",
+    r"\bfixme\b",
+    r"\bplaceholder\b",
+    r"\bscreenshot here\b",
+    r"\blorem ipsum\b",
+)
 IMAGE_SUFFIXES = {".png", ".webp", ".jpg", ".jpeg", ".gif", ".svg"}
+SCREENSHOT_SUFFIXES = {".png", ".webp"}
+
+REQUIRED_SECTIONS = ("install", "usage", "license")
 
 SECTION_KEYS = {
-    "requirements": re.compile(r"requirements|prerequisites|what you need|before you start", re.I),
-    "install": re.compile(r"install|installation|setup|getting started", re.I),
-    "usage": re.compile(r"usage|how to use|quick start|use", re.I),
-    "troubleshooting": re.compile(r"troubleshooting|help|support|diagnostics|known issues", re.I),
-    "license": re.compile(r"license|licence", re.I),
+    "requirements": re.compile(r"\b(requirements|prerequisites)\b|what you need|before you start", re.I),
+    "install": re.compile(r"\b(install|installation|setup)\b|getting started", re.I),
+    "usage": re.compile(r"\b(usage|use)\b|how to use|quick start", re.I),
+    "troubleshooting": re.compile(r"\b(troubleshooting|help|support|diagnostics)\b|known issues", re.I),
+    "license": re.compile(r"\b(license|licence)\b", re.I),
 }
 
 
@@ -62,6 +72,33 @@ def png_width(path: Path) -> int | None:
         return None
     if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
         return int.from_bytes(data[16:20], "big")
+    return None
+
+
+def webp_width(path: Path) -> int | None:
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+    if len(data) < 30 or data[:4] != b"RIFF" or data[8:12] != b"WEBP":
+        return None
+    chunk = data[12:16]
+    if chunk == b"VP8X":
+        return int.from_bytes(data[24:27], "little") + 1
+    if chunk == b"VP8 " and data[23:26] == b"\x9d\x01\x2a":
+        return int.from_bytes(data[26:28], "little") & 0x3FFF
+    if chunk == b"VP8L" and data[20] == 0x2F:
+        bits = int.from_bytes(data[21:25], "little")
+        return (bits & 0x3FFF) + 1
+    return None
+
+
+def image_width(path: Path) -> int | None:
+    suffix = path.suffix.lower()
+    if suffix == ".png":
+        return png_width(path)
+    if suffix == ".webp":
+        return webp_width(path)
     return None
 
 
@@ -107,6 +144,7 @@ def check(readme: Path, kind: str) -> dict:
     add("title", bool(h1), f"H1 at line {h1[0][0]}" if h1 else "no H1 title")
 
     pitch_line = None
+    pitch_text = ""
     if h1:
         title_line = h1[0][0]
         for number in range(title_line + 1, len(lines) + 1):
@@ -115,8 +153,14 @@ def check(readme: Path, kind: str) -> dict:
             stripped = IMAGE.sub("", INLINE_CODE.sub("", lines[number - 1])).strip()
             if len(WORD.findall(stripped)) >= 3:
                 pitch_line = number
+                pitch_text = stripped
                 break
-    add("pitch", pitch_line is not None, f"pitch at line {pitch_line}" if pitch_line else "no pitch after the title")
+    pitch_problem = ""
+    if pitch_line is None:
+        pitch_problem = "no pitch after the title"
+    elif len(pitch_text) > 120:
+        pitch_problem = f"pitch is {len(pitch_text)} characters (limit 120)"
+    add("pitch", not pitch_problem, pitch_problem or f"pitch at line {pitch_line} ({len(pitch_text)} chars)")
 
     found: dict[str, int] = {}
     for key, pattern in SECTION_KEYS.items():
@@ -124,8 +168,14 @@ def check(readme: Path, kind: str) -> dict:
             if level >= 2 and pattern.search(text):
                 found[key] = number
                 break
-    missing = [key for key in SECTION_KEYS if key not in found]
-    add("sections", not missing, f"missing: {', '.join(missing)}" if missing else "all required headings present")
+    missing = [key for key in REQUIRED_SECTIONS if key not in found]
+    duplicates = sorted({line for line in found.values() if list(found.values()).count(line) > 1})
+    problems = []
+    if missing:
+        problems.append(f"missing: {', '.join(missing)}")
+    if duplicates:
+        problems.append(f"one heading serves several sections: lines {duplicates}")
+    add("sections", not problems, "; ".join(problems) if problems else "all required headings present")
 
     order = [found[key] for key in ("requirements", "install", "usage", "troubleshooting", "license") if key in found]
     add("section_order", order == sorted(order), f"heading lines {order}")
@@ -143,6 +193,9 @@ def check(readme: Path, kind: str) -> dict:
         if re.match(r"https?://", target, re.I):
             image_failures.append(f"line {number}: remote image {target}")
             continue
+        if target.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", target):
+            image_failures.append(f"line {number}: absolute image path {target}")
+            continue
         path = (readme.parent / target.split("#", 1)[0].split("?", 1)[0]).resolve()
         if not path.is_file():
             image_failures.append(f"line {number}: missing {target}")
@@ -154,7 +207,7 @@ def check(readme: Path, kind: str) -> dict:
                 image_failures.append(f"line {number}: {path.name} over 500 KB")
         except OSError:
             image_failures.append(f"line {number}: cannot read {path.name}")
-        width = png_width(path)
+        width = image_width(path)
         if width is not None and width > 1600:
             image_failures.append(f"line {number}: {path.name} is {width}px wide")
     add("images", not image_failures, "; ".join(image_failures) if image_failures else f"{len(images)} local image(s)")
@@ -170,7 +223,28 @@ def check(readme: Path, kind: str) -> dict:
             and "banner" not in alt.lower()
             and "banner" not in target.lower()
         ]
-        add("gui_screenshot", bool(screenshots), f"line {screenshots[0][0]}" if screenshots else "no screenshot between pitch and requirements")
+        screenshot_problems = []
+        if not screenshots:
+            screenshot_problems.append("no screenshot between pitch and requirements")
+        for number, _, target in screenshots:
+            if target.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", target):
+                screenshot_problems.append(f"line {number}: absolute path {target}")
+                continue
+            path = (readme.parent / target.split("#", 1)[0].split("?", 1)[0]).resolve()
+            if path.suffix.lower() not in SCREENSHOT_SUFFIXES:
+                screenshot_problems.append(f"line {number}: {path.suffix} is not PNG or WebP")
+                continue
+            if not path.is_file() or path.stat().st_size == 0:
+                screenshot_problems.append(f"line {number}: empty or missing file")
+                continue
+            width = image_width(path)
+            if width is None:
+                screenshot_problems.append(f"line {number}: cannot verify image width")
+            elif width > 1600:
+                screenshot_problems.append(f"line {number}: {width}px wide")
+            if path.stat().st_size > 500 * 1024:
+                screenshot_problems.append(f"line {number}: over 500 KB")
+        add("gui_screenshot", not screenshot_problems, "; ".join(screenshot_problems) if screenshot_problems else f"line {screenshots[0][0]}, {image_width((readme.parent / screenshots[0][2]).resolve())}px")
     else:
         add("gui_screenshot", True, f"not required for kind={kind}")
 
@@ -188,7 +262,7 @@ def check(readme: Path, kind: str) -> dict:
         [text for _, _, text in headings]
         + [line for number, line in enumerate(lines, 1) if number not in fences and not HEADING.match(line)]
     ).lower()
-    found_placeholders = [word for word in PLACEHOLDERS if word in haystack]
+    found_placeholders = [pattern for pattern in PLACEHOLDERS if re.search(pattern, haystack, re.I)]
     add("placeholders", not found_placeholders, f"found: {', '.join(found_placeholders)}" if found_placeholders else "none")
 
     prose = "\n".join(

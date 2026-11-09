@@ -6,7 +6,7 @@
       "name": "littera-user-rewrite",
       "prompt": "Rewrite the README in this repository for end users. It is too long and has no screenshot. I put a current screenshot of the settings window at screenshot.png in the repository root; use it. I approve the short outline, so write it now.",
       "expected_output": "A short user-facing README with the supplied screenshot after the pitch, user install and usage steps, and moved developer detail.",
-      "files": ["screenshot.png"],
+      "files": [],
       "expectations": [
         "README.md exists and is a Markdown README",
         "A non-banner image appears after the pitch and before the requirements heading, and its file exists",
@@ -22,7 +22,7 @@
       "name": "gui-with-screenshot",
       "prompt": "Write a README for this desktop app. A current screenshot of the main window is in assets/app.png. I approve the short outline, so write it now.",
       "expected_output": "A short user-facing README with the screenshot after the pitch, requirements, install, usage, troubleshooting and license.",
-      "files": ["assets/app.png"],
+      "files": [],
       "expectations": [
         "README.md exists and is a Markdown README",
         "A non-banner image appears after the pitch and before the requirements heading, and its file exists",

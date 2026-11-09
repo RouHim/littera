@@ -2,9 +2,11 @@
 
 ![Littera](assets/banner.png)
 
-Voice dictation for Linux. Press a hotkey, speak, and the text appears at your cursor. Littera runs entirely on your machine, with no account and no cloud service.
+Voice dictation for Linux: press a hotkey, speak, and the text appears at your cursor.
 
 ![Littera settings window with the model list, language filter and hotkey status](assets/screenshot.png)
+
+Littera runs entirely on your machine, with no account and no cloud service.
 
 ## Requirements
 

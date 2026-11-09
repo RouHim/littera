@@ -1,6 +1,6 @@
 ---
 name: readme-writer
-description: "Write or rewrite a README for human readers. Use when the user asks to create, rewrite, shorten, condense, audit, restructure or review a README; when a README is too long, too technical, aimed at contributors instead of users, missing install steps, or missing a GUI screenshot; or when a repository needs a quickstart for end users. Applies to README files, not API reference or contribution docs."
+description: "Write or rewrite a README for human readers. Use when the user asks to create, rewrite, shorten, audit or restructure a README; when a README is too long, too technical, aimed at contributors instead of users, missing install steps, or missing a GUI screenshot; or when a repository needs a quickstart for end users. Applies to README files, not API reference or contribution docs."
 ---
 
 # README writer
@@ -14,14 +14,15 @@ A GUI README without a real screenshot is not a deliverable. If the app is GUI a
 ## Workflow
 
 1. Read the repository before writing. Check the package manifest, existing README, license, docs, images, run scripts and install instructions. Facts come from the repository, never from habit.
-2. Classify the project as GUI, CLI/TUI, library or service, or documentation-only. State the classification in the outline.
-3. Decide the mode. If the user asked for an audit or review, report only and change no files. If the user asked to create or rewrite, continue.
-4. Gate the screenshot. For a GUI app, find a current screenshot and get the user's approval for it. If none exists, stop here, ask for one and write nothing. This is a stop condition, not a warning to add later.
-5. For an existing README, present the proposed outline and wait for explicit approval. A new README can be written directly.
-6. Write the README in the fixed order below.
-7. Move developer content to its linked document and add the link.
-8. Run the static checker. Fix every failed check.
-9. Report what changed, what moved, what is unverified and whether the screenshot is still missing.
+2. If the repository has several packages or several READMEs, name the one in scope or ask which one the user means. Never mix install steps from different packages.
+3. Classify the project as GUI, CLI/TUI, library or service, or documentation-only. State the classification in the outline.
+4. Decide the mode. If the user asked for an audit or review, report only and change no files. If the user asked to create or rewrite, continue.
+5. Gate the screenshot. For a GUI app, find a current screenshot and get the user's approval for it. If none exists, stop here, ask for one and write nothing. This is a stop condition, not a warning to add later.
+6. For an existing README, present the proposed outline and wait for explicit approval. A new README can be written directly.
+7. Write the README in the fixed order below.
+8. Move developer content to its linked document and add the link.
+9. Run the static checker. Fix every failed check.
+10. Report what changed, what moved, what is unverified and whether the screenshot is still missing.
 
 ## Fixed order
 
@@ -37,7 +38,7 @@ Use this order and keep the headings plain:
 8. Troubleshooting and help
 9. License
 
-Drop a section only when the project genuinely has nothing for it. A library has no GUI screenshot. Every README keeps install, usage and license.
+Drop a section only when the project genuinely has nothing for it. A library has no GUI screenshot. Every README keeps install, usage and license. Keep the license last; if no license is declared, ask instead of guessing.
 
 The title is the product name, not a sentence. The pitch is one sentence under 120 characters: what the product does and for whom. Stack names belong in the pitch only when the stack is the point.
 
@@ -70,6 +71,14 @@ Install gives one primary copy-paste block of at most three commands. Put altern
 
 Usage gives the smallest working example: one command, one snippet, one first step. A feature tour belongs elsewhere.
 
+## Troubleshooting and help
+
+Name the project's own diagnostic command or the most common failure and its fix. Point help at one support channel. Five support links help nobody.
+
+## Boundaries
+
+Change only the README, the moved developer document and the screenshot asset. Leave application code, configuration, unrelated documentation and git state alone. Do not commit or push.
+
 ## Move developer content
 
 Contribution rules go to `CONTRIBUTING.md`. Build, release, architecture and operations detail goes to `DEVELOPMENT.md` or an existing documentation page. Create the destination when it is missing and link it from the README.
@@ -97,7 +106,7 @@ python3 scripts/check_readme.py <repo>/README.md --kind gui
 
 Use `--kind cli` or `--kind library` when the project is not GUI. The checker reports word count, section order, fences, relative links and images, placeholders, em dashes and the GUI screenshot. It does not run any install, build or run command.
 
-Verification is static. Do not execute the project's commands, use the network or change the system. Do not commit or push.
+Verification is static. Do not execute the project's commands, use the network or change the system.
 
 ## Audit mode
 

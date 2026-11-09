@@ -88,8 +88,8 @@ A maintainer asks the skill to audit or review a README without asking for a rew
 - **FR-002**: Before writing, the skill reads the repository's package manifest, existing README, license, documentation and image assets, and any run or install instructions it can find.
 - **FR-003**: The skill classifies the project as GUI, CLI/TUI, library or service, or documentation-only, and states that classification in the proposed outline.
 - **FR-004**: When a README already exists, the skill presents a proposed outline and waits for explicit approval before writing. An audit request produces a report and no file changes.
-- **FR-005**: The README follows a fixed section order: title, optional existing banner, one-line pitch, screenshot or demo, requirements, install, usage, troubleshooting and help, license.
-- **FR-006**: The one-line pitch says what the product does and for whom in one sentence; implementation language and stack names appear only when they are the point.
+- **FR-005**: The README follows a fixed section order: title, optional existing banner, one-line pitch, screenshot or demo, requirements, install, usage, troubleshooting and help, license. The title is the product name. A section with no content is omitted; install, usage and license always remain.
+- **FR-006**: The one-line pitch says what the product does and for whom in one sentence under 120 characters; implementation language and stack names appear only when they are the point.
 - **FR-007**: Every GUI README includes one real screenshot of the current main UI, placed after the pitch and before the requirements. Browser-based interfaces count as GUI apps.
 - **FR-008**: The skill looks for an existing screenshot first, asks the user for one next, and captures only when the user explicitly asks for a capture and a working display and capture tool exist; capture must not take focus or send input.
 - **FR-009**: A screenshot that shows an outdated UI is treated as missing; the skill inspects it against the current UI and version, asks when freshness cannot be proven, and never silently reuses a stale image.
@@ -111,6 +111,7 @@ A maintainer asks the skill to audit or review a README without asking for a rew
 - **FR-025**: The README language follows the existing README or primary documentation; English is the default when no other language is present.
 - **FR-026**: The skill handles Markdown READMEs only. A non-Markdown README is left untouched unless the user asks for a conversion.
 - **FR-027**: The skill does not modify application code, configuration, unrelated documentation, or git state. It never commits or pushes.
+- **FR-028**: In a repository with several packages or READMEs, the skill names the README in scope or asks which one the user means, and never mixes install steps from different packages.
 
 ## Key Entities
 
