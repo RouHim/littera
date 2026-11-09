@@ -140,10 +140,9 @@ jobs:
           chown -R builder:builder aur-build
           su builder -c "cd '$PWD/aur-build' && makepkg --printsrcinfo > .SRCINFO"
           chown -R root:root aur-build
-      # AUR packages are created through the web form, not by pushing. Keeping
-      # the rendered files as an artifact is what makes that first submission
-      # possible without rebuilding anything.
-      - name: Upload PKGBUILD for the first submission
+      # The rendered files are uploaded for inspection and for a manual replay;
+      # the push below is what actually creates the package on a first release.
+      - name: Upload rendered PKGBUILD
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -192,7 +191,7 @@ jobs:
             if grep -qiE 'permission denied|invalid format|no such identity' /tmp/clone.err; then
               echo "::error::AUR authentication failed. The public half of the AUR_SSH_KEY key must be registered at https://aur.archlinux.org/account/rouhim, and the secret must hold the passphrase-less private key."
             else
-              echo "::error::The AUR package littera-bin does not exist yet. Download the littera-bin-$VERSION artifact, submit its PKGBUILD once at https://aur.archlinux.org/submit, then re-run this job."
+              echo "::error::The AUR remote could not be cloned although the key was accepted. Check the runner's network access and AUR's rate limit (repeated failed auth attempts are throttled per IP); the rendered PKGBUILD is in the littera-bin-$VERSION artifact."
             fi
             exit 1
           fi

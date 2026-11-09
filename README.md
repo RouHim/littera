@@ -413,10 +413,11 @@ The repository publishes itself; there is no manual tagging step.
   secret `AUR_SSH_KEY` (a passphrase-less ed25519 key whose public half is registered in
   the AUR account) and the repository variables `AUR_USERNAME` and `AUR_MAINTAINER_EMAIL`;
   the AUR host key is pinned in `.github/aur_known_hosts`.
-- **First submission is manual** — the AUR creates packages through its web form, not
-  through a push. Submit `packaging/PKGBUILD` once at
-  <https://aur.archlinux.org/submit>; the job then detects the missing remote, fails with
-  that instruction, and succeeds on its next run.
+- **The package is created by the first push** — for a name that is not registered yet,
+  AUR answers the clone with an empty repository (`warning: You appear to have cloned an
+  empty repository`), so the same job that publishes a release also creates the package
+  and its first `pkgver`. No web form is involved. The rendered `PKGBUILD`, `.SRCINFO`
+  and `.install` are still uploaded as a workflow artifact for inspection.
 - **Why the package is a binary package and why it is not statically linked** — a fully
   static binary cannot carry this product: the Vulkan loader (`libvulkan.so.1`) is a
   shared object that `dlopen`s the ICD, `libwayland-client`, `libxkbcommon`, `libX11`,
