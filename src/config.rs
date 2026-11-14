@@ -204,7 +204,7 @@ impl HotkeySource {
     }
 }
 
-/// Model idle-unload timeout (FR-006): Never, 1, 5, 15, 30 or 60 minutes.
+/// Model idle-unload timeout (model-load spec FR-006): Never, 1, 5, 15, 30 or 60 minutes.
 ///
 /// Serialized as the [`IdleUnload::label`] token; a hand-edited file may also
 /// carry the minute count as an integer. Anything unrecognized falls back to the
@@ -294,7 +294,7 @@ impl IdleUnload {
 }
 
 impl Default for IdleUnload {
-    /// FR-006: 15 minutes — long enough that a normal dictation pause does not
+    /// model-load spec FR-006: 15 minutes — long enough that a normal dictation pause does not
     /// pay for a reload, short enough to free the memory during a work break.
     fn default() -> Self {
         Self::FifteenMinutes
@@ -321,7 +321,7 @@ pub struct Config {
     /// the default the key is not written at all.
     #[serde(skip_serializing_if = "is_system_input_device")]
     pub input_device: String,
-    /// Model idle-unload timeout (FR-006); the token of [`IdleUnload::label`] or
+    /// Model idle-unload timeout (model-load spec FR-006); the token of [`IdleUnload::label`] or
     /// a minute count, always written. Anything else falls back to the default.
     #[serde(default, deserialize_with = "idle_unload_from_toml")]
     pub idle_unload: IdleUnload,
@@ -542,19 +542,6 @@ mod tests {
     }
 
     #[test]
-    fn configured_input_device_roundtrips_through_toml() {
-        let cfg = Config {
-            input_device: "alsa:pipewire".to_owned(),
-            ..Config::default()
-        };
-        let text = toml::to_string(&cfg).expect("serialize config");
-        assert!(text.contains("input_device = \"alsa:pipewire\""), "{text}");
-        let back: Config = toml::from_str(&text).expect("deserialize config");
-        assert_eq!(back, cfg);
-        assert_eq!(back.capture_device(), Some("alsa:pipewire"));
-    }
-
-    #[test]
     fn non_default_config_roundtrips_through_toml() {
         let cfg = Config {
             onboarding_complete: true,
@@ -573,6 +560,7 @@ mod tests {
         assert!(text.contains("input_device = \"alsa:default\""), "{text}");
         assert!(text.contains("idle_unload = \"60\""), "{text}");
         let back: Config = toml::from_str(&text).expect("deserialize config");
+        assert_eq!(back.capture_device(), Some("alsa:default"));
         assert_eq!(cfg, back);
     }
 
@@ -586,11 +574,6 @@ mod tests {
 
     #[test]
     fn serde_tokens_match_the_frozen_literals() {
-        let languages = [
-            (Language::AUTO, "auto"),
-            (Language::new("en-US"), "en-US"),
-            (Language::new("de-DE"), "de-DE"),
-        ];
         let backends = [
             (BackendPreference::Auto, "auto"),
             (BackendPreference::Vulkan, "vulkan"),
@@ -602,12 +585,6 @@ mod tests {
         ];
 
         let mut cfg = Config::default();
-        for (language, token) in languages {
-            cfg.language = language;
-            assert_eq!(language.label(), token);
-            let line = format!("language = \"{token}\"");
-            assert_eq!(assert_token_roundtrip(&cfg, &line).language, language);
-        }
         for (backend, token) in backends {
             cfg.backend = backend;
             assert_eq!(backend.label(), token);
@@ -622,8 +599,6 @@ mod tests {
                 Some(source)
             );
         }
-
-        assert!(toml::from_str::<Config>("language = \"fr-FR\"\n").is_ok());
     }
 
     #[test]

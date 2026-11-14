@@ -67,8 +67,9 @@ tooling cannot truthfully claim.
 ## Capabilities and Constraints
 
 - Onboarding (model, language, key binding, system check) with persisted
-  completion; model selector with size and quality notes; language `auto`,
-  `en-US`, `de-DE`; hotkey rebindable live; tap-to-toggle and hold-to-talk
+  completion; model selector with size and quality notes; language `auto` plus
+  the catalog's 32-language table (`en-US` and `de-DE` are the reference
+  languages); hotkey rebindable live; tap-to-toggle and hold-to-talk
   separated by a minimum-hold threshold; 5-minute recording cap; exactly one
   insertion per dictation; the text selection that a paste displaces is put
   back afterwards, so a dictation does not eat the clipboard (clipboard-only
@@ -110,22 +111,30 @@ tooling cannot truthfully claim.
 ## Evidence on Hand
 
 - `.spec/` — the approved specs: `wayland-voice-dictation.md` (Scenarios,
-  FR-001…FR-022, SC-001…SC-010) plus the feature specs that extend it (model
-  catalog, list rows, idle unload, update check). The requirements authority
-  for this product.
+  FR-001…FR-022, SC-001…SC-010) plus the feature specs that extend it (audio
+  input device selection, model catalog, list rows, idle unload, speech-bubble
+  icon, README rewrite, update check and self-update). Together they are the
+  requirements authority; ids are spec-scoped, so a citation names its spec
+  when the number repeats.
 - `DESIGN.md` + `.impeccable/design.json` — the built visual system ("The First
   Reader"), written from the shipped code; `.impeccable/surfaces/settings.md`
   holds the chosen direction contract.
-- `README.md` — operations reference: build/runtime deps, permission matrix,
-  flags, behavior, verification commands.
+- `README.md` — the user-facing overview (install, use, configuration,
+  updates, troubleshooting); `DEVELOPMENT.md` — the operations reference
+  (build/runtime deps, permission matrix, flags, behavior, verification
+  commands).
 - `samples/jfk.wav` — an 11 s, 16 kHz mono fixture used by the `--audio-file`
   path.
 - `src/model_catalog.rs` — the bundled, versioned catalog snapshot with real
   sizes, SHA-256 digests and commit-pinned download URLs.
+- Present, and not to be invented differently: a public GitHub repository,
+  CI/release/pr-title workflows, semantic-release (`.releaserc.json`,
+  `package.json`), the AUR `littera-bin` recipe and Debian `.deb` packaging in
+  `packaging/`, the shipped `assets/icon/littera.desktop` entry, and the
+  in-repo `assets/screenshot.png` embedded by the README.
 - Absent, and not to be fabricated by future work: website, landing page,
-  published screenshots or benchmarks, testimonials, pricing, telemetry
-  claims, and any packaging/release process (private repo, `publish = false`,
-  no CI, no `.desktop` file, no systemd unit).
+  published benchmarks, testimonials, pricing, telemetry claims, and a systemd
+  unit (`publish = false` only prevents a crates.io upload).
 
 ## Product Principles
 

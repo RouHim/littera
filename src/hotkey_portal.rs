@@ -23,7 +23,7 @@ use ashpd::desktop::global_shortcuts::{
     Activated, BindShortcutsOptions, Deactivated, GlobalShortcuts, NewShortcut,
 };
 use ashpd::desktop::{CreateSessionOptions, Session};
-use ashpd::zbus::{self, zvariant};
+use ashpd::zbus;
 
 use crate::hotkey::HotkeyEvent;
 
@@ -130,7 +130,7 @@ async fn register(connection: &zbus::Connection) -> Result<(), PortalError> {
     .await
     .map_err(|error| PortalError::Failed(format!("cannot reach {REGISTRY_INTERFACE}: {error}")))?;
 
-    let options: std::collections::HashMap<String, zvariant::Value<'_>> =
+    let options: std::collections::HashMap<String, zbus::Variant<'_>> =
         std::collections::HashMap::new();
     proxy
         .call_method("Register", &(APP_ID, options))

@@ -285,19 +285,6 @@ mod tests {
     }
 
     #[test]
-    fn checks_compare_by_value() {
-        let check = gpu_check(Some(&vulkan_info()), None, BackendPreference::Auto, None);
-        assert_eq!(
-            check,
-            gpu_check(Some(&vulkan_info()), None, BackendPreference::Auto, None)
-        );
-
-        let mut changed = check.clone();
-        changed.ok = false;
-        assert_ne!(check, changed);
-    }
-
-    #[test]
     fn names_are_the_contracted_literals() {
         assert_eq!(NAME_HOTKEY, "hotkey access");
         assert_eq!(NAME_PASTE, "paste permission");

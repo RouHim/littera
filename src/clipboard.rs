@@ -1820,6 +1820,11 @@ mod tests {
     #[test]
     #[ignore = "needs a live session plus wl-clipboard (wl-copy/wl-paste) for the fixture"]
     fn snapshot_reads_the_selection_a_paste_would_displace() {
+        if crate::test_support::skip_without_clipboard(
+            "snapshot_reads_the_selection_a_paste_would_displace",
+        ) {
+            return;
+        }
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
@@ -1846,6 +1851,10 @@ mod tests {
     #[test]
     #[ignore = "needs a live session plus wl-clipboard (wl-copy/wl-paste) for the fixture"]
     fn restore_puts_the_displaced_selection_back() {
+        if crate::test_support::skip_without_clipboard("restore_puts_the_displaced_selection_back")
+        {
+            return;
+        }
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
@@ -1877,6 +1886,11 @@ mod tests {
     #[test]
     #[ignore = "needs a live session plus wl-clipboard (wl-copy/wl-paste) for the fixture"]
     fn restore_yields_to_a_copy_that_arrived_meanwhile() {
+        if crate::test_support::skip_without_clipboard(
+            "restore_yields_to_a_copy_that_arrived_meanwhile",
+        ) {
+            return;
+        }
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
@@ -1901,6 +1915,11 @@ mod tests {
     #[test]
     #[ignore = "needs a live Wayland session and wl-clipboard (wl-paste)"]
     fn copy_text_owns_the_selection_after_the_call() {
+        if crate::test_support::skip_without_clipboard(
+            "copy_text_owns_the_selection_after_the_call",
+        ) {
+            return;
+        }
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());

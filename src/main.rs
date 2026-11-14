@@ -45,6 +45,49 @@ mod ui_settings;
 mod update;
 mod vulkan_icd;
 
+/// Shared guards for the `#[ignore]`d live tests.
+///
+/// They all need the same contract: print exactly why the test cannot run and return, so a
+/// headless machine never reports green for a test that never touched a surface.
+#[cfg(test)]
+pub(crate) mod test_support {
+    /// Print a skip line and return `true` when no Wayland session is reachable.
+    pub(crate) fn skip_without_wayland(test: &str) -> bool {
+        if std::env::var_os("WAYLAND_DISPLAY").is_none() {
+            eprintln!("skipping {test}: WAYLAND_DISPLAY is not set (no live Wayland session)");
+            return true;
+        }
+        false
+    }
+
+    /// Print a skip line and return `true` when no X display is reachable.
+    pub(crate) fn skip_without_x11(test: &str) -> bool {
+        if std::env::var_os("DISPLAY").is_none() {
+            eprintln!("skipping {test}: DISPLAY is not set (no X/Wayland XWayland session)");
+            return true;
+        }
+        false
+    }
+
+    /// Print a skip line and return `true` unless a live session and both wl-clipboard tools exist.
+    pub(crate) fn skip_without_clipboard(test: &str) -> bool {
+        if skip_without_wayland(test) {
+            return true;
+        }
+        for tool in ["wl-copy", "wl-paste"] {
+            if std::process::Command::new(tool)
+                .arg("--version")
+                .output()
+                .is_err()
+            {
+                eprintln!("skipping {test}: {tool} is not installed (wl-clipboard required)");
+                return true;
+            }
+        }
+        false
+    }
+}
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;

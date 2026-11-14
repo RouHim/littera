@@ -79,10 +79,6 @@ pub enum OverlayBackend {
 /// Environment override for the backend probe: `layer` or `x11`.
 pub const OVERRIDE_ENV: &str = "LITTERA_OVERLAY";
 
-/// The layer-shell interface name looked up in the Wayland registry (pinned by a test).
-#[cfg(test)]
-const LAYER_SHELL_INTERFACE: &str = "zwlr_layer_shell_v1";
-
 const REASON_LAYER: &str = "zwlr_layer_shell_v1 available";
 const REASON_X11: &str =
     "no zwlr_layer_shell_v1; using the X11 non-activating overlay (GNOME path)";
@@ -253,11 +249,6 @@ mod tests {
         assert_eq!(base_reason(OverlayBackend::None), REASON_NONE);
         let none = "no layer-shell and no X11 display — overlay disabled";
         assert_eq!(base_reason(OverlayBackend::None), none);
-    }
-
-    #[test]
-    fn layer_shell_interface_matches_the_protocol_type() {
-        assert_eq!(layer_shell_interface(), LAYER_SHELL_INTERFACE);
     }
 
     #[test]

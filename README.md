@@ -55,10 +55,13 @@ The desktop entry is what the global-shortcut portal identifies Littera by (`Exe
 To build from source (Rust 1.98 or newer):
 
 ```sh
-sudo pacman -S --needed base-devel cmake vulkan-headers spirv-headers vulkan-icd-loader shaderc alsa-lib blas cblas
+sudo pacman -S --needed base-devel cmake vulkan-headers spirv-headers vulkan-icd-loader \
+  shaderc alsa-lib blas cblas libxkbcommon libxcb
 cargo build --release
 ./target/release/littera
 ```
+
+Build, test and release details are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 A build run straight from `target/release` is never replaced by the updater; rebuild it when a release lands. A copy installed under `~/.local/bin` is a Littera-owned install, so the next release replaces it in place. To give the checkout build an app-menu entry and the portal hotkey route, install the entry and icons as above (including the `install -d` for the icons directory), pointing `install` at `target/release/littera`.
 
@@ -68,6 +71,22 @@ A build run straight from `target/release` is never replaced by the updater; reb
 - Or hold the hotkey while you speak, then release.
 - The transcript is pasted at your cursor. Terminals often need Ctrl+Shift+V instead.
 - The tray icon opens the settings. Change the hotkey, language or model there. Changes apply immediately.
+
+## Configuration
+
+The settings window writes `~/.config/littera/config.toml`; the same values can be edited by
+hand. Every key is optional and an absent key keeps its default.
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `onboarding_complete` | `true`/`false` | `false` until setup finishes |
+| `model` | a catalog id (for example `nemotron-3.5-asr-streaming-0.6b-Q8_0`) | the multilingual Q8_0 variant |
+| `language` | `auto` or a locale from the catalog's language table (32 languages) | `auto`; an unknown token falls back to `auto` |
+| `hotkey` | a chord such as `CTRL+SUPER` | `CTRL+SUPER` |
+| `hotkey_source` | `portal`, `device` | omitted while default (automatic) |
+| `backend` | `auto`, `vulkan`, `cpu` | `auto` |
+| `input_device` | `system` or `<host>:<device>` | `system`; omitted while default |
+| `idle_unload` | `never`, `1`, `5`, `15`, `30`, `60` (minutes) | `15`; an unknown value falls back to `15` |
 
 ## Updates
 
@@ -87,5 +106,5 @@ The check covers hotkey access, paste permission, GPU and overlay. Each failure 
 
 - Hotkey does nothing: for a source install, install the desktop entry as described under Install and restart Littera. If the diagnostics ask for it, run `sudo usermod -aG input $USER`, then log in again.
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand. The diagnostics name the blocked path.
-- Your files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`.
+- Your files: config in `~/.config/littera/config.toml` (see [Configuration](#configuration)), models in `~/.local/share/littera/models`.
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).

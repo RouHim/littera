@@ -164,7 +164,7 @@ pub enum ModelStatus {
     /// In memory and usable; the report names the backend, device and any
     /// CPU-fallback reason.
     Resident(engine::EngineInfo),
-    /// On disk but not in memory; the next dictation loads it (FR-012).
+    /// On disk but not in memory; the next dictation loads it (model-load spec FR-012).
     NotResident,
     /// The last load failed; `String` is the reason. The next use retries (FR-016).
     Failed(String),
@@ -200,6 +200,9 @@ pub struct DictationMachine {
     /// Dictations that were still finalising when a newer one started; each one
     /// still owes exactly one `Final`.
     pending_finals: u32,
+    /// Monotonic dictation-cycle identity; a new recording bumps it. An insertion that
+    /// finishes after the next cycle started must not apply to that cycle.
+    cycle: u64,
 }
 
 impl Default for DictationMachine {
@@ -221,7 +224,13 @@ impl DictationMachine {
             queued: false,
             partial: String::new(),
             pending_finals: 0,
+            cycle: 0,
         }
+    }
+
+    /// Identity of the dictation cycle currently being recorded/finalised.
+    pub fn cycle(&self) -> u64 {
+        self.cycle
     }
     pub fn state(&self) -> &DictationState {
         &self.state
@@ -258,6 +267,7 @@ impl DictationMachine {
     }
 
     fn begin(&mut self, now: Instant) -> Vec<DictationEffect> {
+        self.cycle += 1;
         self.enter(DictationState::Recording, now);
         self.started = now;
         self.mode = Gesture::Undetermined;
@@ -414,10 +424,13 @@ impl DictationMachine {
     /// The insertion attempt finished.
     pub fn insert_finished(
         &mut self,
+        cycle: u64,
         outcome: &Result<inserter::InsertOutcome, String>,
         now: Instant,
     ) -> Vec<DictationEffect> {
-        if self.state != DictationState::Inserting {
+        // The insertion runs off the update thread, so its result can arrive after the next
+        // recording (and its own insertion) started. Only the cycle that requested it applies.
+        if self.state != DictationState::Inserting || cycle != self.cycle {
             return Vec::new();
         }
 
@@ -488,12 +501,9 @@ pub struct App {
     pub capture: Option<audio::Capture>,
     /// Generation of the recording currently being captured.
     chunk_generation: u64,
-    /// Sample rate and channel count of the last capture device (diagnostics).
-    pub last_capture: Option<(u32, u16)>,
 
     pub clipboard: Arc<clipboard::Clipboard>,
-    pub inserter: Box<dyn inserter::TextInserter>,
-    pub paste_note: Option<String>,
+    pub inserter: Arc<dyn inserter::TextInserter>,
 
     pub overlay: Box<dyn overlay::OverlayPresenter>,
     pub overlay_backend: overlay::OverlayBackend,
@@ -662,10 +672,8 @@ impl App {
             probe_error,
             capture: None,
             chunk_generation: 0,
-            last_capture: None,
             clipboard,
             inserter,
-            paste_note,
             overlay,
             overlay_backend,
             overlay_reason,
@@ -783,6 +791,12 @@ impl App {
     pub fn handle(&mut self, message: Message) -> Vec<Task<Message>> {
         match message {
             Message::Event(event) => self.handle_event(event),
+            Message::InsertionFinished {
+                detached,
+                chars,
+                cycle,
+                outcome,
+            } => self.finish_insertion(detached, chars, cycle, outcome),
             Message::WindowClosed(id) => {
                 self.windows.remove(&id);
                 Vec::new()
@@ -1137,7 +1151,6 @@ impl App {
                     let config = self.cfg.snapshot();
                     match audio::start(audio_tx, config.capture_device()) {
                         Ok(capture) => {
-                            self.last_capture = Some((capture.rate_in(), capture.channels()));
                             self.capture = Some(capture);
                         }
                         Err(error) => {
@@ -1164,33 +1177,10 @@ impl App {
                     self.engine.send(engine::EngineCmd::Stop);
                 }
                 DictationEffect::Insert(text) => {
-                    let outcome = self
-                        .inserter
-                        .insert(&text)
-                        .map_err(|error| format!("{error:#}"));
-                    let effects = self.machine.insert_finished(&outcome, Instant::now());
-                    tasks.extend(self.run(effects));
+                    tasks.push(self.insertion_task(text, false));
                 }
                 DictationEffect::InsertDetached(text) => {
-                    let chars = text.chars().count();
-                    let outcome = self
-                        .inserter
-                        .insert(&text)
-                        .map_err(|error| format!("{error:#}"));
-                    match outcome {
-                        Ok(inserter::InsertOutcome::Inserted) => {
-                            tracing::info!(chars, "queued dictation inserted");
-                        }
-                        Ok(inserter::InsertOutcome::CopiedOnly { reason, .. }) => {
-                            self.set_notice(format!(
-                                "Auto-paste did not complete: {reason} — transcript copied, press Ctrl+V"
-                            ));
-                        }
-                        Err(error) => {
-                            tracing::error!(error, "inserting a queued dictation failed");
-                            self.set_notice(format!("Insertion failed: {error}"));
-                        }
-                    }
+                    tasks.push(self.insertion_task(text, true));
                 }
                 DictationEffect::OverlayChanged => {
                     self.refresh_tray();
@@ -1200,6 +1190,66 @@ impl App {
         }
 
         tasks
+    }
+
+    /// Run one insertion on the blocking pool.
+    ///
+    /// `UinputInserter::insert` deliberately waits (selection snapshot, clipboard
+    /// confirmation, fetch grace); doing that here would freeze iced's update loop for
+    /// seconds, so it runs on a blocking worker and reports back through
+    /// [`Message::InsertionFinished`].
+    fn insertion_task(&mut self, text: String, detached: bool) -> Task<Message> {
+        let inserter = Arc::clone(&self.inserter);
+        let chars = text.chars().count();
+        let cycle = self.machine.cycle();
+        Task::perform(
+            async move {
+                let outcome = tokio::task::spawn_blocking(move || {
+                    inserter.insert(&text).map_err(|error| format!("{error:#}"))
+                })
+                .await
+                .unwrap_or_else(|error| Err(format!("the insertion task failed: {error}")));
+                Message::InsertionFinished {
+                    detached,
+                    chars,
+                    cycle,
+                    outcome,
+                }
+            },
+            std::convert::identity,
+        )
+    }
+
+    /// Apply an insertion outcome on the update thread.
+    fn finish_insertion(
+        &mut self,
+        detached: bool,
+        chars: usize,
+        cycle: u64,
+        outcome: Result<inserter::InsertOutcome, String>,
+    ) -> Vec<Task<Message>> {
+        if detached {
+            match outcome {
+                Ok(inserter::InsertOutcome::Inserted) => {
+                    tracing::info!(chars, "queued dictation inserted");
+                }
+                Ok(inserter::InsertOutcome::CopiedOnly { reason, .. }) => {
+                    self.set_notice(format!(
+                        "Auto-paste did not complete: {reason} — transcript copied, press Ctrl+V"
+                    ));
+                }
+                Err(error) => {
+                    tracing::error!(error, "inserting a queued dictation failed");
+                    self.set_notice(format!("Insertion failed: {error}"));
+                }
+            }
+            return Vec::new();
+        }
+
+        let effects = self
+            .machine
+            .insert_finished(cycle, &outcome, Instant::now());
+        self.run(effects)
     }
 
     /// The overlay frame for the current state, or `None` when it must be hidden.
@@ -1752,9 +1802,8 @@ impl App {
 
     /// Re-probe every capability without restarting (FR-014, SC-006).
     pub fn recheck(&mut self) -> Vec<Task<Message>> {
-        let (inserter, note) = inserter::select(Arc::clone(&self.clipboard));
+        let (inserter, _note) = inserter::select(Arc::clone(&self.clipboard));
         self.inserter = inserter;
-        self.paste_note = note;
 
         let (probe_info, probe_error) = engine::probe_devices(self.cfg.snapshot().backend);
         self.probe_info = probe_info;
@@ -2053,7 +2102,9 @@ mod tests {
                 .is_empty()
         );
 
+        let cycle = machine.cycle();
         machine.insert_finished(
+            cycle,
             &Ok(inserter::InsertOutcome::Inserted),
             t0 + Duration::from_secs(4),
         );
@@ -2073,7 +2124,8 @@ mod tests {
             reason: "/dev/uinput (Permission denied (os error 13))".to_owned(),
             blocked_path: Some(PathBuf::from("/dev/uinput")),
         };
-        machine.insert_finished(&Ok(outcome), t0 + Duration::from_secs(2));
+        let cycle = machine.cycle();
+        machine.insert_finished(cycle, &Ok(outcome), t0 + Duration::from_secs(2));
 
         match machine.state() {
             DictationState::Copied(reason) => assert!(reason.contains("/dev/uinput")),
@@ -2081,6 +2133,124 @@ mod tests {
         }
 
         machine.tick(t0 + COPIED_TTL + Duration::from_secs(3));
+        assert_eq!(machine.state(), &DictationState::Idle);
+    }
+
+    #[test]
+    fn insertion_error_enters_failed_and_ignores_a_late_outcome() {
+        let mut machine = DictationMachine::new();
+        let t0 = Instant::now();
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0);
+        machine.chunk(&chunk(audio::MIN_RECORDING_SAMPLES as usize));
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(1));
+        machine.final_text("Hallo.".to_owned(), t0 + Duration::from_secs(2));
+
+        let cycle = machine.cycle();
+        let effects = machine.insert_finished(
+            cycle,
+            &Err("copy failed".to_owned()),
+            t0 + Duration::from_secs(3),
+        );
+        assert_eq!(effects, vec![DictationEffect::OverlayChanged]);
+        assert_eq!(
+            machine.state(),
+            &DictationState::Failed("copy failed".to_owned())
+        );
+
+        // The machine already left Inserting, so a second completion is ignored.
+        assert!(
+            machine
+                .insert_finished(
+                    cycle,
+                    &Ok(inserter::InsertOutcome::Inserted),
+                    t0 + Duration::from_secs(4)
+                )
+                .is_empty()
+        );
+        assert_eq!(
+            machine.state(),
+            &DictationState::Failed("copy failed".to_owned())
+        );
+    }
+
+    #[test]
+    fn every_recording_advances_the_cycle() {
+        let mut machine = DictationMachine::new();
+        let t0 = Instant::now();
+        let first = machine.cycle();
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0);
+        let second = machine.cycle();
+        assert!(second > first);
+
+        // A press while Inserting starts a new recording cycle, which is what makes a late
+        // insertion result from the previous cycle distinguishable.
+        machine.chunk(&chunk(audio::MIN_RECORDING_SAMPLES as usize));
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(1));
+        machine.final_text("Hallo.".to_owned(), t0 + Duration::from_secs(2));
+        assert_eq!(machine.state(), &DictationState::Inserting);
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(3));
+        assert!(machine.cycle() > second);
+    }
+
+    #[test]
+    fn a_late_insertion_result_from_an_older_cycle_is_ignored() {
+        let mut machine = DictationMachine::new();
+        let t0 = Instant::now();
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0);
+        machine.chunk(&chunk(audio::MIN_RECORDING_SAMPLES as usize));
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(1));
+        machine.final_text("Hallo.".to_owned(), t0 + Duration::from_secs(2));
+        let older = machine.cycle();
+
+        // The next press starts a new recording while the first insertion is still running.
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(3));
+        assert_eq!(machine.state(), &DictationState::Recording);
+
+        assert!(
+            machine
+                .insert_finished(
+                    older,
+                    &Ok(inserter::InsertOutcome::Inserted),
+                    t0 + Duration::from_secs(4)
+                )
+                .is_empty(),
+            "an older cycle's result must not touch the new recording"
+        );
+        assert_eq!(machine.state(), &DictationState::Recording);
+
+        // The new cycle still completes normally.
+        machine.chunk(&chunk(audio::MIN_RECORDING_SAMPLES as usize));
+        machine.hotkey(hotkey::HotkeyEvent::Press, t0 + Duration::from_secs(5));
+        machine.final_text("Welt.".to_owned(), t0 + Duration::from_secs(6));
+        let current = machine.cycle();
+        assert_ne!(older, current);
+        machine.insert_finished(
+            current,
+            &Ok(inserter::InsertOutcome::Inserted),
+            t0 + Duration::from_secs(7),
+        );
+        assert_eq!(machine.state(), &DictationState::Idle);
+    }
+
+    #[test]
+    fn failed_state_expires_after_its_ttl() {
+        let mut machine = DictationMachine::new();
+        let t0 = Instant::now();
+        machine.failed("transcription failed".to_owned(), t0);
+        assert_eq!(
+            machine.state(),
+            &DictationState::Failed("transcription failed".to_owned())
+        );
+
+        assert!(
+            machine
+                .tick(t0 + FAILED_TTL - Duration::from_millis(1))
+                .is_empty()
+        );
+        assert!(matches!(machine.state(), DictationState::Failed(_)));
+
+        let effects = machine.tick(t0 + FAILED_TTL);
+        assert_eq!(effects, vec![DictationEffect::OverlayChanged]);
         assert_eq!(machine.state(), &DictationState::Idle);
     }
 

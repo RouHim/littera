@@ -2,6 +2,8 @@
 
 **Created**: 2026-10-15
 **Status**: Approved
+**Id scoping**: `FR-*`/`SC-*` ids are local to this file. Feature specs under `.spec/` reuse the same numbers for their own requirements; a citation outside this file names the spec when the number could be ambiguous.
+
 **Input**: Build an OpenWhispr clone specialized for Linux/Wayland: hotkey-triggered, fully local dictation with a fast multilingual model (English + German), Vulkan acceleration, Rust + iced GUI, simple onboarding (model selection, key binding) and a small indicator at the bottom center of the monitor; keep the first MVP simple.
 
 ## Goal
@@ -139,8 +141,8 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - The reference machine for latency and success criteria is the developer machine: COSMIC 1.9.0 on Wayland, AMD Radeon RX 6950 XT with the Mesa RADV Vulkan driver, PipeWire audio.
 - Engine integration is assumed to be the in-process, statically linked Rust bindings route; the alternatives are documented above and the final choice is confirmed during planning.
 - The default model is the multilingual Q8_0 variant; the default language is `auto`.
-- Models remain resident in memory after the first dictation and are released when the application quits.
-- The system-default microphone is used; no input-device picker is part of the MVP.
+- ~~Models remain resident in memory after the first dictation and are released when the application quits.~~ Retired by `.spec/model-load-feedback-and-idle-unload.md`: models unload after the configured idle timeout.
+- ~~The system-default microphone is used; no input-device picker is part of the MVP.~~ Retired by `.spec/audio-input-device-selection.md`; the settings window ships a Microphone picker.
 - After an auto-pasted insertion the displaced text selection returns to the clipboard once the paste had its chance (FR-012); a newer copy wins, and only clipboard-only mode leaves the transcript on the clipboard.
 - Recordings shorter than roughly 0.3 seconds and recordings whose transcript is empty are discarded.
 - Settings are reopened by relaunching the application or through the tray; there is no dedicated "open settings" hotkey.

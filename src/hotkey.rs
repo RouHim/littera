@@ -309,7 +309,8 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
         .map_err(|err| BindError::from_parts(err.to_string(), CHORD_REMEDIATION))?;
 
     let mut portal_detail: Option<String> = None;
-    if portal_enabled(preferred) {
+    let override_value = std::env::var(OVERRIDE_PORTAL).ok();
+    if portal_enabled(preferred, override_value.as_deref()) {
         match crate::hotkey_portal::bind(&parsed.canonical).await {
             Ok(bound) => {
                 if portal_honoured(&parsed.canonical, &bound.trigger_description) {
@@ -404,9 +405,11 @@ pub async fn bind(chord: &str, preferred: Option<HotkeySource>) -> Result<Hotkey
 }
 
 /// Whether the portal path should be attempted at all.
-fn portal_enabled(preferred: Option<HotkeySource>) -> bool {
-    preferred != Some(HotkeySource::Device)
-        && !std::env::var(OVERRIDE_PORTAL).is_ok_and(|value| value == "0")
+///
+/// The environment override is passed in rather than read here so the decision can be
+/// tested without mutating process state.
+fn portal_enabled(preferred: Option<HotkeySource>, override_value: Option<&str>) -> bool {
+    preferred != Some(HotkeySource::Device) && override_value != Some("0")
 }
 
 /// Compose the `BindError.detail` for the "both mechanisms failed" case.
@@ -651,8 +654,18 @@ mod tests {
 
     #[test]
     fn the_device_preference_never_uses_the_portal() {
-        // `portal_enabled` also consults $LITTERA_HOTKEY_PORTAL; the device
-        // preference must win regardless of the environment.
-        assert!(!portal_enabled(Some(HotkeySource::Device)));
+        // The device preference must win regardless of the override value.
+        assert!(!portal_enabled(Some(HotkeySource::Device), None));
+        assert!(!portal_enabled(Some(HotkeySource::Device), Some("1")));
+    }
+
+    #[test]
+    fn the_portal_override_only_disables_on_exactly_zero() {
+        assert!(portal_enabled(None, None));
+        assert!(portal_enabled(Some(HotkeySource::Portal), None));
+        assert!(!portal_enabled(None, Some("0")));
+        assert!(portal_enabled(None, Some("1")));
+        assert!(portal_enabled(None, Some("garbage")));
+        assert!(portal_enabled(None, Some("00")));
     }
 }

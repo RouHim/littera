@@ -76,6 +76,22 @@ impl StreamLease {
     }
 }
 
+/// What the stream-open loop does after a failed attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryDecision {
+    Retry,
+    Fail,
+}
+
+/// Pure retry policy: only a `Busy` failure is retried, and only up to [`BUSY_RETRIES`].
+fn retry_decision(busy: bool, attempt: u32) -> RetryDecision {
+    if busy && attempt < BUSY_RETRIES {
+        RetryDecision::Retry
+    } else {
+        RetryDecision::Fail
+    }
+}
+
 /// Begin a stream on `session`, retrying briefly while the library reports the
 /// model busy.
 ///
@@ -101,7 +117,7 @@ fn begin_stream(
             }
             Err(err) => err,
         };
-        if !matches!(&failure, AsrError::Busy(_)) || attempt >= BUSY_RETRIES {
+        if retry_decision(matches!(&failure, AsrError::Busy(_)), attempt) == RetryDecision::Fail {
             return Err(transcription_failed(&failure));
         }
         attempt += 1;
@@ -117,4 +133,24 @@ fn begin_stream(
 /// The user-facing message for a failed session or stream call.
 pub(crate) fn transcription_failed(err: &AsrError) -> String {
     format!("transcription failed: {err}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_busy_model_is_retried_up_to_the_limit() {
+        for attempt in 0..BUSY_RETRIES {
+            assert_eq!(retry_decision(true, attempt), RetryDecision::Retry);
+        }
+        assert_eq!(retry_decision(true, BUSY_RETRIES), RetryDecision::Fail);
+        assert_eq!(retry_decision(true, BUSY_RETRIES + 1), RetryDecision::Fail);
+    }
+
+    #[test]
+    fn any_other_failure_is_not_retried() {
+        assert_eq!(retry_decision(false, 0), RetryDecision::Fail);
+        assert_eq!(retry_decision(false, BUSY_RETRIES - 1), RetryDecision::Fail);
+    }
 }
