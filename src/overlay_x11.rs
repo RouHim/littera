@@ -26,6 +26,7 @@ use std::fs::File;
 use std::os::unix::fs::FileExt as _;
 use std::sync::mpsc;
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use x11rb::connection::Connection as _;
@@ -68,6 +69,19 @@ const CARD_RGB: (u8, u8, u8) = (0x1E, 0x1E, 0x24);
 
 const THREAD_NAME: &str = "littera-overlay-x11";
 
+/// How long [`spawn`] waits for the overlay thread to connect and set up its window.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long a `show`/`draw`/`hide` call waits for the overlay thread to answer.
+const REPLY_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Reported when the overlay thread does not finish its startup in time.
+const STARTUP_TIMEOUT_ERROR: &str =
+    "the X11 overlay thread did not become ready in time (Xwayland required)";
+
+/// Reported when the overlay thread does not answer a presentation command in time.
+const REPLY_TIMEOUT_ERROR: &str = "the X11 overlay thread did not answer in time";
+
 /// A monitor (or screen) rectangle in root coordinates: `(x, y, width, height)`.
 type Rect = (i32, i32, i32, i32);
 
@@ -92,7 +106,7 @@ pub fn spawn() -> Result<Box<dyn OverlayPresenter>> {
         .spawn(move || run(rx, ready_tx))
         .context("spawn the X11 overlay thread")?;
 
-    match ready_rx.recv() {
+    match ready_rx.recv_timeout(STARTUP_TIMEOUT) {
         Ok(Ok(())) => {
             let presenter: Box<dyn OverlayPresenter> = Box::new(X11Presenter {
                 tx,
@@ -104,7 +118,12 @@ pub fn spawn() -> Result<Box<dyn OverlayPresenter>> {
             let _ = thread.join();
             Err(anyhow!("{message}"))
         }
-        Err(_) => {
+        Err(mpsc::RecvTimeoutError::Timeout) => {
+            // Do not join: a wedged X connection would block the caller too. Dropping the
+            // handle detaches the thread, matching the layer-shell backend's behaviour.
+            Err(anyhow!(STARTUP_TIMEOUT_ERROR))
+        }
+        Err(mpsc::RecvTimeoutError::Disconnected) => {
             let _ = thread.join();
             Err(anyhow!(
                 "the X11 overlay thread exited before it was ready (Xwayland required)"
@@ -168,9 +187,10 @@ impl X11Presenter {
         self.tx
             .send(command(ack_tx))
             .map_err(|_| anyhow!("the X11 overlay thread is not running"))?;
-        match ack_rx.recv() {
+        match ack_rx.recv_timeout(REPLY_TIMEOUT) {
             Ok(result) => result,
-            Err(_) => Err(anyhow!(
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(anyhow!(REPLY_TIMEOUT_ERROR)),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(anyhow!(
                 "the X11 overlay thread stopped before it answered a request"
             )),
         }
@@ -1062,8 +1082,9 @@ mod tests {
     #[test]
     #[ignore = "needs an X server on DISPLAY (XWayland counts)"]
     fn x11_overlay_is_a_non_activating_notification_window() {
-        if std::env::var_os("DISPLAY").is_none() {
-            eprintln!("skipping: DISPLAY is not set");
+        if crate::test_support::skip_without_x11(
+            "x11_overlay_is_a_non_activating_notification_window",
+        ) {
             return;
         }
 

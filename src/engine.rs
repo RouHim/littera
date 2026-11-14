@@ -93,7 +93,7 @@ pub enum EngineCmd {
     /// (Re)load a model from `path` with a new backend preference.
     LoadModel(PathBuf, BackendPreference),
     /// Release the loaded model — host RAM and, on GPU runs, VRAM — without
-    /// stopping the worker (FR-011); the next `Start` or `LoadModel` loads again.
+    /// stopping the worker (model-load spec FR-011); the next `Start` or `LoadModel` loads again.
     Unload,
     /// Drop the model and stop the worker thread.
     Shutdown,
@@ -103,7 +103,11 @@ pub enum EngineCmd {
 pub struct Engine {
     tx: Sender<EngineCmd>,
     worker: Option<JoinHandle<()>>,
+    done: Receiver<()>,
 }
+
+/// How long [`Engine::shutdown`] waits for the worker to leave its native call.
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 impl Engine {
     /// Send a command, ignoring a worker that is already gone (logged at debug).
@@ -114,13 +118,27 @@ impl Engine {
     }
 
     /// Stop the worker and wait for it to release the model.
+    ///
+    /// The wait is bounded: a worker stuck inside a native transcription call must not
+    /// freeze the daemon's shutdown path.
     pub fn shutdown(&mut self) {
-        if let Some(worker) = self.worker.take() {
-            if self.tx.send(EngineCmd::Shutdown).is_err() {
-                tracing::debug!("engine worker was already stopped");
+        let Some(worker) = self.worker.take() else {
+            return;
+        };
+        if self.tx.send(EngineCmd::Shutdown).is_err() {
+            tracing::debug!("engine worker was already stopped");
+        }
+        match self.done.recv_timeout(SHUTDOWN_TIMEOUT) {
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                if worker.join().is_err() {
+                    tracing::error!("engine worker thread panicked");
+                }
             }
-            if worker.join().is_err() {
-                tracing::error!("engine worker thread panicked");
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                tracing::warn!(
+                    timeout_secs = SHUTDOWN_TIMEOUT.as_secs(),
+                    "engine worker did not stop in time; detaching it"
+                );
             }
         }
     }
@@ -147,6 +165,7 @@ pub fn spawn(
     events: Sender<EngineEvent>,
 ) -> Engine {
     let (tx, rx) = mpsc::channel();
+    let (done_tx, done_rx) = mpsc::channel();
     let worker = Worker {
         selection,
         path,
@@ -159,17 +178,24 @@ pub fn spawn(
     };
     match thread::Builder::new()
         .name("littera-engine".to_owned())
-        .spawn(move || worker.run(rx))
-    {
+        .spawn(move || {
+            worker.run(rx);
+            let _ = done_tx.send(());
+        }) {
         Ok(handle) => Engine {
             tx,
             worker: Some(handle),
+            done: done_rx,
         },
         Err(err) => {
             // The receiver is dropped with the closure, so `send` fails and is
             // logged instead of blocking the app.
             tracing::error!(error = %err, "cannot start the engine thread");
-            Engine { tx, worker: None }
+            Engine {
+                tx,
+                worker: None,
+                done: done_rx,
+            }
         }
     }
 }

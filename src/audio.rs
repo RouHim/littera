@@ -49,7 +49,7 @@ pub struct Chunk {
     pub rms: f32,
 }
 
-/// One capture device the backend can open right now (FR-004/FR-005).
+/// One capture device the backend can open right now (audio-device spec FR-004/FR-005).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputDevice {
     /// `cpal` device identifier, `<host>:<device>` (e.g. `alsa:default`); this is what the
@@ -416,23 +416,11 @@ type SetupResult = std::result::Result<CaptureSetup, String>;
 
 /// A running microphone capture. Owns the capture thread and, inside it, the `cpal::Stream`.
 pub struct Capture {
-    rate_in: u32,
-    channels: u16,
     control: Option<Sender<CaptureMsg>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl Capture {
-    /// Sample rate the device delivers, before resampling.
-    pub fn rate_in(&self) -> u32 {
-        self.rate_in
-    }
-
-    /// Channel count the device delivers, before down-mixing.
-    pub fn channels(&self) -> u16 {
-        self.channels
-    }
-
     /// Stop capturing and drop the stream. Idempotent.
     pub fn stop(&mut self) {
         let Some(control) = self.control.take() else {
@@ -475,8 +463,6 @@ pub fn start(tx: Sender<Chunk>, device: Option<&str>) -> Result<Capture> {
         Ok(Ok((rate_in, channels))) => {
             tracing::info!(rate = rate_in, channels, "audio capture started");
             Ok(Capture {
-                rate_in,
-                channels,
                 control: Some(control_tx),
                 thread: Some(thread),
             })
@@ -963,12 +949,6 @@ mod tests {
             format_code: 1,
             bits: 16,
         }
-    }
-
-    #[test]
-    fn capture_is_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<Capture>();
     }
 
     #[test]

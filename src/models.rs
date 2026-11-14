@@ -20,6 +20,13 @@ use crate::model_catalog::Artifact;
 const FREE_SPACE_SLACK: u64 = 64 * 1024 * 1024;
 /// Minimum interval between two `progress` callbacks.
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
+
+/// How long the agent waits for a connection / the response headers before failing.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Per transport read: how long one body read may take before the transfer counts as
+/// stalled. It restarts for every read, so it never caps the total transfer time.
+const BODY_TIMEOUT: Duration = Duration::from_secs(60);
 /// Read buffer used when hashing an already-downloaded `.part` prefix.
 const HASH_BUFFER_BYTES: usize = 1024 * 1024;
 /// Read buffer used while a download is streaming to disk.
@@ -145,6 +152,21 @@ pub async fn ensure(
     let dir = tokio::task::spawn_blocking(crate::config::Config::models_dir)
         .await
         .context("cannot prepare the model directory")??;
+    ensure_in(dir, artifact, cancel, progress, false).await
+}
+
+/// [`ensure`] against an explicit directory.
+///
+/// The directory is a parameter so the download flow can be tested without creating
+/// anything below `$HOME`; `allow_plain_http` exists for the same reason (a local
+/// fixture speaks HTTP).
+async fn ensure_in(
+    dir: PathBuf,
+    artifact: &'static Artifact,
+    cancel: Arc<AtomicBool>,
+    progress: Arc<dyn Fn(u64, u64) + Send + Sync>,
+    allow_plain_http: bool,
+) -> Result<PathBuf> {
     let path = path_in(dir.as_path(), artifact);
     let file_name = artifact.file_name;
 
@@ -254,6 +276,7 @@ pub async fn ensure(
             part_len,
             &cancel_for_transfer,
             progress_for_transfer.as_ref(),
+            allow_plain_http,
         )
     })
     .await
@@ -300,14 +323,20 @@ fn transfer_to_part(
     mut part_len: u64,
     cancel: &AtomicBool,
     progress: &(dyn Fn(u64, u64) + Send + Sync),
+    allow_plain_http: bool,
 ) -> Result<Sha256> {
     use std::io::{Read as _, Write as _};
 
     let url = artifact.url;
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .user_agent(concat!("littera/", env!("CARGO_PKG_VERSION")))
-        // Artifacts only ever come from HTTPS, and no redirect may leave it.
-        .https_only(true)
+        // A stalled CDN must fail the download instead of hanging the blocking pool.
+        .timeout_connect(Some(CONNECT_TIMEOUT))
+        .timeout_recv_response(Some(CONNECT_TIMEOUT))
+        .timeout_per_read(Some(BODY_TIMEOUT))
+        // Artifacts only ever come from HTTPS, and no redirect may leave it. The
+        // local test fixture opts out explicitly.
+        .https_only(!allow_plain_http)
         // Non-2xx answers are inspected below: the `Range` handling depends on it.
         .http_status_as_error(false)
         .build()
@@ -539,109 +568,6 @@ mod tests {
     }
 
     #[test]
-    fn catalog_ids_are_unique_and_name_the_file() {
-        // The snapshot owns the catalog now; this module only needs every id to
-        // name exactly one file (its own `.gguf`).
-        let all: Vec<&'static Artifact> = crate::model_catalog::artifacts()
-            .map(|selection| selection.artifact)
-            .collect();
-        assert_eq!(all.len(), 23, "offered artifacts");
-
-        let mut ids: Vec<&str> = all.iter().map(|artifact| artifact.id).collect();
-        ids.sort_unstable();
-        ids.dedup();
-        assert_eq!(ids.len(), all.len(), "artifact ids must be unique");
-
-        for artifact in all {
-            assert!(
-                artifact.file_name.ends_with(".gguf"),
-                "{} must name a GGUF file",
-                artifact.file_name
-            );
-            assert!(!artifact.id.is_empty());
-            assert!(!artifact.quant.is_empty());
-            assert!(
-                artifact.id.starts_with(artifact.quant) || artifact.id.contains(artifact.quant),
-                "{} must name its quant",
-                artifact.id
-            );
-            assert!(
-                artifact.url.starts_with("https://"),
-                "url must be HTTPS: {url}",
-                url = artifact.url
-            );
-            assert_eq!(artifact.sha256.len(), 64, "sha256 must be 64 hex chars");
-            assert!(
-                artifact.sha256.chars().all(|c| c.is_ascii_hexdigit()),
-                "sha256 must be hex: {sha}",
-                sha = artifact.sha256
-            );
-        }
-    }
-
-    #[test]
-    fn catalog_matches_the_pinned_contract() {
-        // The three artifacts of the previous release keep their exact byte
-        // length and digest, so an installed model needs no re-download (SC-006).
-        const LEGACY: [(&str, u64, &str); 3] = [
-            (
-                "nemotron-3.5-asr-streaming-0.6b-Q8_0",
-                751_094_240,
-                "b94545b313b3223fda7b2857a52681da813935c2127643d1e9ff0c23d988089c",
-            ),
-            (
-                "nemotron-3.5-asr-streaming-0.6b-Q4_K_M",
-                495_831_520,
-                "41c99fa5fb6f3d35f68e79adc3e755eca2232a8d921178bd647b71194792b8fd",
-            ),
-            (
-                "nemotron-speech-streaming-en-0.6b-Q8_0",
-                729_650_176,
-                "90d8c89714cd31efc88be62a40c6b2bea57e0cc2063af1ffe2c28f1a228ca110",
-            ),
-        ];
-
-        for (id, size, sha) in LEGACY {
-            let artifact = crate::model_catalog::artifact(id)
-                .unwrap_or_else(|| panic!("{id} must stay offered"))
-                .artifact;
-            assert_eq!(artifact.size_bytes, size, "{id}");
-            assert_eq!(artifact.sha256, sha, "{id}");
-            assert_eq!(artifact.file_name, format!("{id}.gguf"));
-            // The label the UI shows is the formatted byte size.
-            assert_eq!(
-                human_size(artifact.size_bytes),
-                match id {
-                    "nemotron-3.5-asr-streaming-0.6b-Q4_K_M" => "496 MB",
-                    "nemotron-speech-streaming-en-0.6b-Q8_0" => "730 MB",
-                    _ => "751 MB",
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn artifact_lookup_resolves_by_id_and_default() {
-        const DEFAULT: &str = "nemotron-3.5-asr-streaming-0.6b-Q8_0";
-
-        assert!(crate::model_catalog::artifact("does-not-exist").is_none());
-        assert_eq!(
-            crate::model_catalog::artifact(DEFAULT).map(|selection| selection.artifact.id),
-            Some(DEFAULT)
-        );
-        for selection in crate::model_catalog::artifacts() {
-            assert_eq!(
-                crate::model_catalog::artifact(selection.artifact.id),
-                Some(selection)
-            );
-        }
-        assert_eq!(
-            crate::model_catalog::default_selection().artifact.id,
-            DEFAULT
-        );
-    }
-
-    #[test]
     fn path_in_ends_with_the_entry_file_name() {
         // `path_for` is `path_in(models_dir(), artifact)`. Only the join is ours to
         // test: `Config::models_dir()` *creates* `<data dir>/littera/models`, and tests
@@ -788,6 +714,315 @@ mod tests {
         assert_eq!(dir_usage(&dir), (8, 2));
         assert_eq!(dir_usage(&dir.join("missing")), (0, 0));
 
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let path = temp_file(tag);
+        std::fs::create_dir_all(path.as_path()).expect("create temp dir");
+        path
+    }
+
+    /// Leak a test artifact: the production type stores `'static` catalog data.
+    fn artifact_for(url: &str, bytes: &[u8]) -> &'static Artifact {
+        let sha = hex_lower(&Sha256::digest(bytes));
+        let tag = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let file_name: &'static str =
+            Box::leak(format!("littera-fixture-{tag}.gguf").into_boxed_str());
+        let url: &'static str = Box::leak(url.to_owned().into_boxed_str());
+        let sha256: &'static str = Box::leak(sha.into_boxed_str());
+        Box::leak(Box::new(Artifact {
+            id: "fixture",
+            quant: "Q8_0",
+            file_name,
+            url,
+            size_bytes: bytes.len() as u64,
+            sha256,
+        }))
+    }
+
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+            .block_on(future)
+    }
+
+    /// One-shot HTTP fixture; every response is written to its own connection and the
+    /// captured requests are returned for assertions.
+    fn http_server(
+        responses: Vec<String>,
+    ) -> (
+        String,
+        Arc<std::sync::Mutex<Vec<String>>>,
+        std::thread::JoinHandle<()>,
+    ) {
+        use std::io::Read as _;
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("bind fixture");
+        let addr = listener.local_addr().expect("fixture address");
+        let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = Arc::clone(&requests);
+        let handle = std::thread::spawn(move || {
+            for response in responses {
+                let Ok((mut socket, _)) = listener.accept() else {
+                    return;
+                };
+                let mut buffer = [0u8; 4096];
+                let read = socket.read(&mut buffer).unwrap_or(0);
+                captured
+                    .lock()
+                    .expect("requests")
+                    .push(String::from_utf8_lossy(&buffer[..read]).to_ascii_lowercase());
+                let _ = socket.write_all(response.as_bytes());
+            }
+        });
+        (format!("http://{addr}/model.gguf"), requests, handle)
+    }
+
+    fn response(status: &str, body: &[u8]) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            String::from_utf8_lossy(body)
+        )
+    }
+
+    #[test]
+    fn a_fresh_download_is_verified_and_written() {
+        let bytes = b"fixture-model-body";
+        let (url, _requests, server) = http_server(vec![response("200 OK", bytes)]);
+        let dir = temp_dir("download");
+        let part = dir.join("model.gguf.part");
+
+        let digest = transfer_to_part(
+            artifact_for(&url, bytes),
+            part.as_path(),
+            0,
+            &AtomicBool::new(false),
+            &|_, _| {},
+            true,
+        )
+        .expect("download");
+        let _ = server.join();
+
+        assert_eq!(std::fs::read(part.as_path()).expect("part"), bytes);
+        assert_eq!(
+            hex_lower(&digest.finalize()),
+            hex_lower(&Sha256::digest(bytes))
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_ranged_request_resumes_from_the_partial_file() {
+        let bytes = b"0123456789";
+        let (url, requests, server) =
+            http_server(vec![response("206 Partial Content", &bytes[4..])]);
+        let dir = temp_dir("resume");
+        let part = dir.join("model.gguf.part");
+        std::fs::write(part.as_path(), &bytes[..4]).expect("prefix");
+
+        let digest = transfer_to_part(
+            artifact_for(&url, bytes),
+            part.as_path(),
+            4,
+            &AtomicBool::new(false),
+            &|_, _| {},
+            true,
+        )
+        .expect("resume");
+        let _ = server.join();
+
+        assert_eq!(std::fs::read(part.as_path()).expect("part"), bytes);
+        assert_eq!(
+            hex_lower(&digest.finalize()),
+            hex_lower(&Sha256::digest(bytes))
+        );
+        assert!(
+            requests.lock().expect("requests")[0].contains("range: bytes=4-"),
+            "the resumed request must ask for the missing suffix"
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_server_that_ignores_the_range_causes_one_clean_restart() {
+        let bytes = b"0123456789";
+        let (url, requests, server) =
+            http_server(vec![response("200 OK", bytes), response("200 OK", bytes)]);
+        let dir = temp_dir("restart");
+        let part = dir.join("model.gguf.part");
+        std::fs::write(part.as_path(), &bytes[..4]).expect("prefix");
+
+        let digest = transfer_to_part(
+            artifact_for(&url, bytes),
+            part.as_path(),
+            4,
+            &AtomicBool::new(false),
+            &|_, _| {},
+            true,
+        )
+        .expect("restart");
+        let _ = server.join();
+
+        assert_eq!(std::fs::read(part.as_path()).expect("part"), bytes);
+        assert_eq!(
+            hex_lower(&digest.finalize()),
+            hex_lower(&Sha256::digest(bytes))
+        );
+        assert_eq!(requests.lock().expect("requests").len(), 2);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_oversized_partial_file_is_discarded_before_downloading() {
+        let bytes = b"0123456789";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("oversized");
+        let part = dir.join(format!("{}.part", artifact.file_name));
+        std::fs::write(part.as_path(), b"much longer than the artifact").expect("part");
+
+        let result = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            true,
+        ));
+        let _ = result;
+
+        assert!(!part.exists(), "an oversized prefix must be discarded");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_complete_partial_file_is_verified_and_published() {
+        let bytes = b"complete-fixture";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("complete-part");
+        let part = dir.join(format!("{}.part", artifact.file_name));
+        std::fs::write(part.as_path(), bytes).expect("part");
+
+        let path = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect("publish the verified part");
+
+        assert_eq!(std::fs::read(path.as_path()).expect("model"), bytes);
+        assert!(!part.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_verified_file_short_circuits_without_touching_the_network() {
+        let bytes = b"already-here";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("already-there");
+        std::fs::write(dir.join(artifact.file_name), bytes).expect("model");
+
+        let path = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect("verified file");
+
+        assert_eq!(path, dir.join(artifact.file_name));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cancelling_verification_reports_the_cancel_and_keeps_the_file() {
+        let bytes = b"cancel-me";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("cancel");
+        let path = dir.join(artifact.file_name);
+        std::fs::write(path.as_path(), bytes).expect("model");
+        let cancel = Arc::new(AtomicBool::new(true));
+
+        let error = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            cancel,
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect_err("a cancelled verification must not proceed");
+
+        assert!(format!("{error:#}").contains("download cancelled"));
+        assert!(path.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_free_space_gate_refuses_an_impossible_download() {
+        let bytes = b"x";
+        let mut artifact = *artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        artifact.size_bytes = u64::MAX / 2;
+        let artifact: &'static Artifact = Box::leak(Box::new(artifact));
+        let dir = temp_dir("space");
+
+        let error = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect_err("free space must gate the download");
+
+        assert!(format!("{error:#}").contains("not enough free disk space"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_tampered_file_is_removed_before_downloading() {
+        let bytes = b"trusted-model";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("tamper");
+        let path = dir.join(artifact.file_name);
+        std::fs::write(path.as_path(), b"tampered-mode").expect("tampered model");
+
+        let error = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect_err("a digest mismatch must trigger a re-download");
+
+        assert!(!path.exists(), "the corrupt file must be deleted");
+        assert!(format!("{error:#}").contains("cannot start the download"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn cancelling_a_transfer_keeps_the_partial_file() {
+        let bytes = b"0123456789abcdef";
+        let artifact = artifact_for("http://127.0.0.1:1/model.gguf", bytes);
+        let dir = temp_dir("cancel-part");
+        let part = dir.join(format!("{}.part", artifact.file_name));
+        std::fs::write(part.as_path(), &bytes[..4]).expect("partial download");
+
+        let error = block_on(ensure_in(
+            dir.clone(),
+            artifact,
+            Arc::new(AtomicBool::new(true)),
+            Arc::new(|_, _| {}),
+            true,
+        ))
+        .expect_err("a cancelled transfer must abort");
+
+        assert!(format!("{error:#}").contains("download cancelled"));
+        assert_eq!(std::fs::read(part.as_path()).expect("part"), &bytes[..4]);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

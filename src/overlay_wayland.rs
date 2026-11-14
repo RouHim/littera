@@ -870,8 +870,7 @@ mod tests {
     #[test]
     #[ignore = "needs a layer-shell compositor (COSMIC/KDE/Hyprland)"]
     fn layer_overlay_shows_draws_and_hides() {
-        if std::env::var_os("WAYLAND_DISPLAY").is_none() {
-            eprintln!("skipping: WAYLAND_DISPLAY is not set");
+        if crate::test_support::skip_without_wayland("layer_overlay_shows_draws_and_hides") {
             return;
         }
 

@@ -62,6 +62,14 @@ pub(crate) fn icon_rgba() -> Option<&'static (Vec<u8>, u32, u32)> {
 pub enum Message {
     /// A background event (engine, capture, hotkey, tray, IPC, timers).
     Event(AppEvent),
+    /// A transcript insertion finished on the blocking pool.
+    InsertionFinished {
+        detached: bool,
+        chars: usize,
+        /// Dictation cycle the insertion belongs to; ignored for detached results.
+        cycle: u64,
+        outcome: Result<crate::inserter::InsertOutcome, String>,
+    },
     /// A window finished opening.
     WindowOpened(window::Id),
     /// A window was closed by the user.

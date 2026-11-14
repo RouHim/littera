@@ -5,9 +5,6 @@ on:
     branches:
       - main
 
-permissions:
-  contents: write
-
 concurrency:
   group: release
   cancel-in-progress: false
@@ -16,14 +13,16 @@ jobs:
   release:
     name: semantic-release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     outputs:
       published: ${{ steps.result.outputs.published }}
       version: ${{ steps.result.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -49,6 +48,8 @@ jobs:
     needs: release
     if: needs.release.outputs.published == 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     container: archlinux:base-devel
     outputs:
       version: ${{ needs.release.outputs.version }}
@@ -60,10 +61,11 @@ jobs:
           pacman -Syu --noconfirm --needed
           git cmake ninja vulkan-headers spirv-headers vulkan-icd-loader
           shaderc glslang alsa-lib blas cblas libxkbcommon libxcb rust github-cli
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: v${{ needs.release.outputs.version }}
-      - uses: actions/cache@v4
+          persist-credentials: false
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry
@@ -124,10 +126,12 @@ jobs:
     needs: release
     if: needs.release.outputs.published == 'true'
     runs-on: ubuntu-24.04
-    # Pinned to the oldest supported userland. The control file derives
+    permissions:
+      contents: read
+    # Pinned by digest to the oldest supported userland. The control file derives
     # `libc6 (>= …)` from the binary actually built here, so a newer image
     # would silently raise the .deb's floor.
-    container: ubuntu:24.04
+    container: ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
     # Container jobs run `run:` steps through the image's /bin/sh, which is
     # dash on ubuntu:24.04; dash rejects `set -o pipefail`. bash ships in the
     # image, so pin every step in this job to it.
@@ -144,12 +148,13 @@ jobs:
             build-essential cmake ninja-build pkg-config git curl ca-certificates \
             libasound2-dev libvulkan-dev glslc glslang-tools spirv-headers \
             libxkbcommon-dev libxcb1-dev
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: v${{ needs.release.outputs.version }}
+          persist-credentials: false
       # Separate key prefix: this target tree belongs to the noble toolchain,
       # never to the Arch container's.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.rustup
@@ -162,8 +167,14 @@ jobs:
       - name: Rust toolchain
         run: |
           set -euo pipefail
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable
+          rustup_init=/tmp/rustup-init
+          curl --proto '=https' --tlsv1.2 -sSfL \
+            https://static.rust-lang.org/rustup/archive/1.28.2/x86_64-unknown-linux-gnu/rustup-init \
+            -o "$rustup_init"
+          echo "20a06e644b0d9bd2fbdbfd52d42540bdde820ea7df86e92e533c073da0cdd43c  $rustup_init" \
+            | sha256sum -c -
+          chmod +x "$rustup_init"
+          "$rustup_init" -y --profile minimal --default-toolchain 1.99.1
           echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
       # TRANSCRIBE_USE_SYSTEM_BLAS=OFF is explicit: Debian and Ubuntu keep
       # cblas.h outside the paths transcribe.cpp and build.rs probe, so the
@@ -214,7 +225,7 @@ jobs:
           fi
           dpkg-deb --info "$deb"
       - name: Upload the deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: littera-deb-${{ needs.release.outputs.version }}
           path: |
@@ -230,8 +241,10 @@ jobs:
     if: needs.release.outputs.published == 'true'
     # No job container: the fresh rootfs checks need the runner's Docker.
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: littera-deb-${{ needs.release.outputs.version }}
           path: dist
@@ -247,7 +260,9 @@ jobs:
           deb="dist/littera_${VERSION}_amd64.deb"
           test -f "$deb"
           test "$(sha256sum "$deb" | cut -d' ' -f1)" = "$(cat "$deb.sha256")"
-          for image in ubuntu:24.04 debian:13; do
+          ubuntu=ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
+          debian=debian:13@sha256:bfc36aecdece0387418759dba474aa856c026ca8087da3606b41b90ab0509c99
+          for image in "$ubuntu" "$debian"; do
             echo "::group::$image"
             docker run --rm -e DEBIAN_FRONTEND=noninteractive \
               -v "$PWD/$deb:/tmp/littera.deb:ro" "$image" \
@@ -279,11 +294,15 @@ jobs:
       - release
       - build
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     container: archlinux:base-devel
     steps:
       - name: System dependencies
         run: pacman -Syu --noconfirm --needed git openssh
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Render PKGBUILD
         env:
           VERSION: ${{ needs.release.outputs.version }}
@@ -312,7 +331,7 @@ jobs:
       # the push below is what actually creates the package on a first release.
       - name: Upload rendered PKGBUILD
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: littera-bin-${{ needs.release.outputs.version }}
           include-hidden-files: true

@@ -77,8 +77,59 @@ pub enum InsertOutcome {
 }
 
 /// Inserts a transcript into the focused application.
-pub trait TextInserter: Send {
+pub trait TextInserter: Send + Sync {
     fn insert(&self, text: &str) -> Result<InsertOutcome>;
+}
+
+/// Proof that a consumer fetched the copy offered to it.
+trait FetchProof: Send {
+    fn wait(&self, timeout: Duration) -> bool;
+}
+
+impl FetchProof for crate::clipboard::FetchTicket {
+    fn wait(&self, timeout: Duration) -> bool {
+        crate::clipboard::FetchTicket::wait(self, timeout)
+    }
+}
+
+/// The clipboard operations the paste flow needs.
+///
+/// This is a seam, not an abstraction for its own sake: it lets the ordering invariant be
+/// tested with a fake instead of a live compositor.
+trait PasteTarget: Send + Sync {
+    fn snapshot(&self) -> Option<String>;
+    fn copy_text(&self, text: &str) -> Result<()>;
+    fn fetch_proof(&self) -> Box<dyn FetchProof>;
+    fn restore(&self, text: &str) -> Result<bool>;
+}
+
+impl PasteTarget for Clipboard {
+    fn snapshot(&self) -> Option<String> {
+        Clipboard::snapshot(self)
+    }
+
+    fn copy_text(&self, text: &str) -> Result<()> {
+        Clipboard::copy_text(self, text)
+    }
+
+    fn fetch_proof(&self) -> Box<dyn FetchProof> {
+        Box::new(Clipboard::fetch_ticket(self))
+    }
+
+    fn restore(&self, text: &str) -> Result<bool> {
+        Clipboard::restore(self, text)
+    }
+}
+
+/// The chord writer, behind a seam for the same reason.
+trait ChordEmitter: Send {
+    fn emit(&mut self, events: &[InputEvent]) -> std::io::Result<()>;
+}
+
+impl ChordEmitter for VirtualDevice {
+    fn emit(&mut self, events: &[InputEvent]) -> std::io::Result<()> {
+        VirtualDevice::emit(self, events)
+    }
 }
 
 /// Probe for diagnostics and the settings surface: is auto-paste usable right now?
@@ -121,8 +172,11 @@ fn paste_chord_release() -> [InputEvent; 2] {
 /// `insert` takes `&self` because the app shares the inserter through a trait object, while the
 /// device itself needs `&mut self` to emit — so it lives behind a `Mutex`.
 pub struct UinputInserter {
-    clipboard: Arc<Clipboard>,
-    device: Mutex<VirtualDevice>,
+    clipboard: Arc<dyn PasteTarget>,
+    device: Mutex<Box<dyn ChordEmitter>>,
+    /// Serialises whole insertions: the snapshot → copy → chord → fetch → restore
+    /// sequence owns the one clipboard selection, so a detached late final must wait.
+    flow: Mutex<()>,
 }
 
 impl UinputInserter {
@@ -144,13 +198,25 @@ impl UinputInserter {
         );
         Ok(UinputInserter {
             clipboard,
-            device: Mutex::new(device),
+            device: Mutex::new(Box::new(device)),
+            flow: Mutex::new(()),
         })
+    }
+
+    /// Construct with explicit seams; the tests use this, production goes through [`Self::new`].
+    #[cfg(test)]
+    fn with_parts(clipboard: Arc<dyn PasteTarget>, device: Box<dyn ChordEmitter>) -> Self {
+        UinputInserter {
+            clipboard,
+            device: Mutex::new(device),
+            flow: Mutex::new(()),
+        }
     }
 }
 
 impl TextInserter for UinputInserter {
     fn insert(&self, text: &str) -> Result<InsertOutcome> {
+        let _serialized = self.flow.lock().map_err(|_| anyhow::anyhow!(POISONED))?;
         // The text the paste is about to displace is read first (FR-012); without it the
         // dictation would silently eat whatever the user copied earlier.
         let displaced = self.clipboard.snapshot();
@@ -171,7 +237,7 @@ impl TextInserter for UinputInserter {
         }
         // Proof that the focused application fetched the transcript; without it the restore must
         // not run, or a paste that never happened loses the transcript (FR-012).
-        let fetched = self.clipboard.fetch_ticket();
+        let fetched = self.clipboard.fetch_proof();
         let mut device = self.device.lock().map_err(|_| anyhow::anyhow!(POISONED))?;
         device.emit(&paste_chord_press()).context(EMIT_FAILED)?;
         std::thread::sleep(PASTE_CHORD_HOLD);
@@ -196,7 +262,7 @@ impl TextInserter for UinputInserter {
         // The original grace still runs from the chord: a toolkit may ask for a follow-up mime
         // right after the first fetch, and the transcript must not be gone by then.
         std::thread::sleep(CLIPBOARD_RESTORE_GRACE.saturating_sub(after_release.elapsed()));
-        restore_displaced(&self.clipboard, displaced);
+        restore_displaced(self.clipboard.as_ref(), displaced);
         tracing::info!(
             chars = text.chars().count(),
             "transcript pasted with Ctrl+V",
@@ -209,7 +275,7 @@ impl TextInserter for UinputInserter {
 ///
 /// Never fails the insertion: `None` means the snapshot read no text (nothing to put back, the
 /// transcript stays), `Ok(false)` means a newer copy won and is kept.
-fn restore_displaced(clipboard: &Clipboard, displaced: Option<String>) {
+fn restore_displaced(clipboard: &dyn PasteTarget, displaced: Option<String>) {
     let Some(previous) = displaced else {
         tracing::debug!("no text selection was displaced; the transcript stays on the clipboard");
         return;
@@ -257,18 +323,18 @@ impl TextInserter for ClipboardOnlyInserter {
 /// Returns the inserter plus `Some(reason)` when auto-paste is unavailable: `reason` is the
 /// user-visible explanation — the [`uinput_writable`] error text, or why the virtual keyboard could
 /// not be built. Never fails, because the app has to stay usable with the clipboard path alone.
-pub fn select(clipboard: Arc<Clipboard>) -> (Box<dyn TextInserter>, Option<String>) {
+pub fn select(clipboard: Arc<Clipboard>) -> (Arc<dyn TextInserter>, Option<String>) {
     if let Err(reason) = uinput_writable() {
         tracing::warn!(
             reason = %reason,
             "auto-paste unavailable; falling back to clipboard-only",
         );
         let inserter = ClipboardOnlyInserter::new(clipboard, reason.clone());
-        return (Box::new(inserter), Some(reason));
+        return (Arc::new(inserter), Some(reason));
     }
 
     match UinputInserter::new(Arc::clone(&clipboard)) {
-        Ok(inserter) => (Box::new(inserter), None),
+        Ok(inserter) => (Arc::new(inserter), None),
         Err(err) => {
             let reason = format!("{err:#}");
             tracing::warn!(
@@ -276,7 +342,7 @@ pub fn select(clipboard: Arc<Clipboard>) -> (Box<dyn TextInserter>, Option<Strin
                 "auto-paste unavailable; falling back to clipboard-only",
             );
             let inserter = ClipboardOnlyInserter::new(clipboard, reason.clone());
-            (Box::new(inserter), Some(reason))
+            (Arc::new(inserter), Some(reason))
         }
     }
 }
@@ -286,6 +352,11 @@ mod tests {
     #[test]
     #[ignore = "needs a live Wayland session (owns the clipboard)"]
     fn clipboard_only_mode_reports_the_blocked_device() {
+        if crate::test_support::skip_without_wayland(
+            "clipboard_only_mode_reports_the_blocked_device",
+        ) {
+            return;
+        }
         let _guard = crate::clipboard::SELECTION_LOCK
             .lock()
             .unwrap_or_else(|poison| poison.into_inner());
@@ -340,5 +411,162 @@ mod tests {
     #[test]
     fn virtual_keyboard_advertises_only_the_chord_keys() {
         assert_eq!(advertised(&paste_chord_keys()), vec![CTRL, V]);
+    }
+
+    #[derive(Clone, Copy)]
+    enum Restore {
+        Restored,
+        Yielded,
+        Failed,
+    }
+
+    struct FakeTarget {
+        ops: Arc<Mutex<Vec<String>>>,
+        previous: Option<String>,
+        restore: Restore,
+        fetched: bool,
+    }
+
+    impl PasteTarget for FakeTarget {
+        fn snapshot(&self) -> Option<String> {
+            self.ops.lock().expect("ops").push("snapshot".to_owned());
+            self.previous.clone()
+        }
+
+        fn copy_text(&self, text: &str) -> Result<()> {
+            self.ops.lock().expect("ops").push(format!("copy:{text}"));
+            Ok(())
+        }
+
+        fn fetch_proof(&self) -> Box<dyn FetchProof> {
+            self.ops.lock().expect("ops").push("proof".to_owned());
+            Box::new(FakeProof {
+                fetched: self.fetched,
+                ops: Arc::clone(&self.ops),
+            })
+        }
+
+        fn restore(&self, text: &str) -> Result<bool> {
+            self.ops
+                .lock()
+                .expect("ops")
+                .push(format!("restore:{text}"));
+            match self.restore {
+                Restore::Restored => Ok(true),
+                Restore::Yielded => Ok(false),
+                Restore::Failed => Err(anyhow::anyhow!("restore failed")),
+            }
+        }
+    }
+
+    struct FakeProof {
+        fetched: bool,
+        ops: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl FetchProof for FakeProof {
+        fn wait(&self, _timeout: Duration) -> bool {
+            self.ops.lock().expect("ops").push("wait".to_owned());
+            self.fetched
+        }
+    }
+
+    struct FakeEmitter {
+        ops: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl ChordEmitter for FakeEmitter {
+        fn emit(&mut self, _events: &[InputEvent]) -> std::io::Result<()> {
+            self.ops.lock().expect("ops").push("emit".to_owned());
+            Ok(())
+        }
+    }
+
+    fn fake_inserter(
+        ops: &Arc<Mutex<Vec<String>>>,
+        previous: Option<&str>,
+        restore: Restore,
+        fetched: bool,
+    ) -> UinputInserter {
+        let target: Arc<dyn PasteTarget> = Arc::new(FakeTarget {
+            ops: Arc::clone(ops),
+            previous: previous.map(str::to_owned),
+            restore,
+            fetched,
+        });
+        let emitter: Box<dyn ChordEmitter> = Box::new(FakeEmitter {
+            ops: Arc::clone(ops),
+        });
+        UinputInserter::with_parts(target, emitter)
+    }
+
+    fn recorded(ops: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+        ops.lock().expect("ops").clone()
+    }
+
+    #[test]
+    fn paste_copies_before_the_chord_and_restores_after_the_fetch() {
+        let ops = Arc::new(Mutex::new(Vec::new()));
+        let inserter = fake_inserter(&ops, Some("displaced"), Restore::Restored, true);
+
+        let outcome = inserter.insert("transcript").expect("insert");
+
+        assert_eq!(outcome, InsertOutcome::Inserted);
+        assert_eq!(
+            recorded(&ops),
+            vec![
+                "snapshot",
+                "copy:transcript",
+                "proof",
+                "emit",
+                "emit",
+                "wait",
+                "restore:displaced",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_paste_nobody_fetched_keeps_the_transcript() {
+        let ops = Arc::new(Mutex::new(Vec::new()));
+        let inserter = fake_inserter(&ops, Some("displaced"), Restore::Restored, false);
+
+        let outcome = inserter.insert("transcript").expect("insert");
+
+        assert_eq!(
+            outcome,
+            InsertOutcome::CopiedOnly {
+                reason: PASTE_NOT_FETCHED.to_owned(),
+                blocked_path: None,
+            }
+        );
+        assert!(
+            !recorded(&ops).iter().any(|op| op.starts_with("restore")),
+            "an unfetched paste must never restore over the transcript"
+        );
+    }
+
+    #[test]
+    fn a_newer_copy_wins_over_the_restore() {
+        let ops = Arc::new(Mutex::new(Vec::new()));
+        let inserter = fake_inserter(&ops, Some("displaced"), Restore::Yielded, true);
+
+        let outcome = inserter.insert("transcript").expect("insert");
+
+        assert_eq!(outcome, InsertOutcome::Inserted);
+        assert_eq!(
+            recorded(&ops).last().map(String::as_str),
+            Some("restore:displaced")
+        );
+    }
+
+    #[test]
+    fn a_failed_restore_does_not_fail_the_insertion() {
+        let ops = Arc::new(Mutex::new(Vec::new()));
+        let inserter = fake_inserter(&ops, Some("displaced"), Restore::Failed, true);
+
+        let outcome = inserter.insert("transcript").expect("insert");
+
+        assert_eq!(outcome, InsertOutcome::Inserted);
     }
 }

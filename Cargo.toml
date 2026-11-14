@@ -20,10 +20,8 @@ transcribe-cpp = { version = "0.4.1", default-features = false, features = ["vul
 # thread pool, unused because the `tokio` backend outranks it). The renderer
 # pair is deliberate: `iced_renderer` then builds `Renderer::All`, which prefers
 # wgpu at runtime and falls back to the CPU (tiny-skia) on machines without a
-# usable adapter. `canvas` adds the vector geometry layer (`lyon_path`) that the
-# drawn icon set needs.
+# usable adapter.
 iced = { version = "0.14.0", default-features = false, features = [
-    "canvas",
     "crisp",
     "web-colors",
     "wgpu",
@@ -35,7 +33,7 @@ iced = { version = "0.14.0", default-features = false, features = [
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
 futures-util = "0.3"
 # Desktop portals (global shortcut binding).
-ashpd = { version = "0.13", default-features = false, features = ["tokio", "global_shortcuts", "raw_handle"] }
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "global_shortcuts"] }
 # Microphone capture + resampling to 16 kHz mono.
 cpal = "0.18"
 rubato = "5.0"
