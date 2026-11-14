@@ -62,7 +62,3 @@ The check covers hotkey access, paste permission, GPU and overlay. Each failure 
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand. The diagnostics name the blocked path.
 - Your files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`.
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).
-
-## License
-
-MIT. See [LICENSE](LICENSE).
