@@ -1,5 +1,3 @@
-# Shipped as-is for a checkout: install-desktop.sh rewrites Exec to this
-# repository's target/release/littera (the executable the README documents).
 [Desktop Entry]
 Type=Application
 Version=1.0

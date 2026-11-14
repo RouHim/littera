@@ -110,7 +110,7 @@ async fn verify_entry_off_runtime(
 }
 
 /// Remove `path`, treating "it is already gone" as success.
-fn remove_file_if_present(path: &Path) -> Result<()> {
+pub(crate) fn remove_file_if_present(path: &Path) -> Result<()> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -458,8 +458,8 @@ fn sha256_of_file(path: &Path, cancel: Option<&AtomicBool>) -> Result<Option<Sha
     Ok(Some(hasher))
 }
 
-/// Stream `path` and return whether its SHA-256 equals `expected_sha256`
-/// (case-insensitive). `Ok(false)` means "read fine, digest differs".
+/// Stream `path` and compare its SHA-256 against `expected_sha256`
+/// (case-insensitive). [`Verify::Mismatch`] means "read fine, digest differs".
 /// Outcome of a checksum probe that a cancel flag can abandon.
 ///
 /// Reading a 751 MB artifact takes seconds, so the caller — a download that the

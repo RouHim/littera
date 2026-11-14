@@ -1,8 +1,8 @@
 //! Littera — local voice dictation for Linux/Wayland.
 //!
-//! `main` resolves the two verification flags (`--diagnostics`,
-//! `--audio-file`) before anything else, otherwise it enforces single-instance
-//! behaviour and runs the iced daemon (FR-015).
+//! `main` resolves `--version` and the two verification flags
+//! (`--diagnostics`, `--audio-file`) before anything else, otherwise it
+//! enforces single-instance behaviour and runs the iced daemon (FR-015).
 
 #![cfg_attr(not(test), deny(clippy::unwrap_used, clippy::expect_used))]
 
@@ -42,6 +42,7 @@ mod ui;
 mod ui_onboarding;
 mod ui_problems;
 mod ui_settings;
+mod update;
 mod vulkan_icd;
 
 use std::io::Write;
@@ -53,9 +54,11 @@ use anyhow::{Context, Result, bail};
 use crate::app::App;
 use crate::config::Config;
 
-/// The only two command-line flags the binary accepts.
+/// The command-line flags the binary accepts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Cli {
+    /// Print the running version and exit 0 (FR-028).
+    Version,
     /// Print the system checks and exit 0 (FR-014 verification).
     Diagnostics,
     /// Run the production pipeline on a WAV file instead of the microphone.
@@ -72,6 +75,10 @@ fn main() -> Result<()> {
     logging::init().context("initialising logging failed")?;
 
     match parse_args(std::env::args().skip(1)) {
+        Ok(Cli::Version) => {
+            emit(concat!("littera ", env!("CARGO_PKG_VERSION")));
+            Ok(())
+        }
         Ok(Cli::Diagnostics) => diagnostics_cli(),
         Ok(Cli::AudioFile {
             path,
@@ -82,7 +89,7 @@ fn main() -> Result<()> {
         Err(error) => {
             emit(&format!("{error:#}"));
             emit(
-                "usage: littera [--diagnostics | --audio-file <WAV> [--print-transcript] [--latency]]",
+                "usage: littera [--version | --diagnostics | --audio-file <WAV> [--print-transcript] [--latency]]",
             );
             std::process::exit(2);
         }
@@ -95,6 +102,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Cli> {
 
     while let Some(arg) = args.next() {
         match arg.as_str() {
+            "--version" => cli = Cli::Version,
             "--diagnostics" => cli = Cli::Diagnostics,
             "--audio-file" => {
                 let path = args
@@ -389,7 +397,8 @@ mod tests {
     }
 
     #[test]
-    fn parses_the_diagnostics_flag() {
+    fn parses_the_version_and_diagnostics_flags() {
+        assert_eq!(parse(&["--version"]).ok(), Some(Cli::Version));
         assert_eq!(parse(&["--diagnostics"]).ok(), Some(Cli::Diagnostics));
     }
 

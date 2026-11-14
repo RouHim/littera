@@ -26,11 +26,12 @@ Littera is a privacy-first voice dictation application for Linux/Wayland: press
 a global hotkey, speak, and the transcript is inserted at the cursor of the
 focused application while streaming partials appear on a bottom-centre overlay.
 Recognition runs entirely in the application's own process — no cloud, no
-account, no separately installed speech runtime, and no network use beyond the
-initial model download. Success means end-to-end dictation on the reference
-machine with first partials within a second of speech onset and the final
-insert within 1.5 s of the stop gesture, correct German and English output
-including umlauts and ß, and every capability the platform does not grant by
+account, no separately installed speech runtime. The only network access is one
+update check per start, the verified update download when Littera owns the
+binary, and user-initiated model downloads. Success means end-to-end dictation
+on the reference machine with first partials within a second of speech onset and
+the final insert within 1.5 s of the stop gesture, correct German and English
+output including umlauts and ß, and every capability the platform does not grant by
 default (hotkey access, paste permission, GPU backend, overlay backend)
 surfacing as an explicit, actionable state rather than a silent failure.
 
@@ -108,8 +109,10 @@ tooling cannot truthfully claim.
 
 ## Evidence on Hand
 
-- `.spec/wayland-voice-dictation.md` — the approved spec: Scenarios,
-  FR-001…FR-022, SC-001…SC-010. The requirements authority for this product.
+- `.spec/` — the approved specs: `wayland-voice-dictation.md` (Scenarios,
+  FR-001…FR-022, SC-001…SC-010) plus the feature specs that extend it (model
+  catalog, list rows, idle unload, update check). The requirements authority
+  for this product.
 - `DESIGN.md` + `.impeccable/design.json` — the built visual system ("The First
   Reader"), written from the shipped code; `.impeccable/surfaces/settings.md`
   holds the chosen direction contract.
@@ -127,8 +130,9 @@ tooling cannot truthfully claim.
 ## Product Principles
 
 1. **Everything local.** Recognition runs in-process from the application's
-   own binary; no cloud, no account, no separately installed runtime; the only
-   network use is verified model downloads.
+   own binary; no cloud, no account, no separately installed runtime. The only
+   network activity is one startup update check — with a verified download when
+   Littera owns the binary — plus user-initiated model downloads.
 2. **Degrade visibly, never silently.** Any capability the platform withholds
    gets an explicit state, the blocked path, and the exact command that fixes
    it; the application stays usable except for the affected capability.

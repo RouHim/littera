@@ -18,7 +18,7 @@ use crate::config::{self, SharedConfig};
 use crate::model_catalog::{self, Selection};
 use crate::models;
 use crate::ui::{self, Message};
-use crate::{audio, clipboard, diagnostics, engine, hotkey, inserter, ipc, overlay, tray};
+use crate::{audio, clipboard, diagnostics, engine, hotkey, inserter, ipc, overlay, tray, update};
 
 /// Minimum hold time that distinguishes a hold-to-talk release from the release
 /// of a tap that started the recording (FR-010).
@@ -61,6 +61,8 @@ pub enum AppEvent {
     TrayReady(Option<tray::TrayState>),
     /// The openable input devices, enumerated when the settings window opened (FR-008).
     InputDevices(Vec<audio::InputDevice>),
+    /// One startup update pass; `Err` is for the log only (FR-023).
+    Update(Result<update::Outcome, String>),
 }
 
 impl std::fmt::Debug for AppEvent {
@@ -80,6 +82,7 @@ impl std::fmt::Debug for AppEvent {
             AppEvent::PortalProbed(_) => "PortalProbed",
             AppEvent::TrayReady(_) => "TrayReady",
             AppEvent::InputDevices(_) => "InputDevices",
+            AppEvent::Update(_) => "Update",
         };
         write!(f, "AppEvent::{name}")
     }
@@ -737,6 +740,14 @@ impl App {
             tasks.push(Task::done(Message::OpenOnboarding));
         }
 
+        // One update pass per start, only once setup is done (FR-023): it must
+        // never compete with onboarding or delay the first dictation.
+        if cfg.onboarding_complete {
+            tasks.push(Task::perform(update::run_off_runtime(), |result| {
+                Message::Event(AppEvent::Update(result))
+            }));
+        }
+
         if let Some(error) = load_error {
             tracing::error!(
                 error,
@@ -844,11 +855,22 @@ impl App {
             AppEvent::Tick => {
                 let effects = self.machine.tick(now);
                 let tasks = self.run(effects);
-                if let Some((_, until)) = &self.notice
-                    && now.saturating_duration_since(*until) >= NOTICE_TTL
-                {
-                    self.notice = None;
-                    self.refresh_overlay(false);
+                // A notice counts down only while the overlay can actually show
+                // it: dictation states and a running download take precedence
+                // in `frame()`, so an update notice that arrives mid-dictation
+                // must not expire unseen (FR-027).
+                let hidden = self.machine.is_active()
+                    || self
+                        .download
+                        .as_ref()
+                        .is_some_and(DownloadState::is_running);
+                if let Some((_, until)) = &mut self.notice {
+                    if hidden {
+                        *until = now;
+                    } else if now.saturating_duration_since(*until) >= NOTICE_TTL {
+                        self.notice = None;
+                        self.refresh_overlay(false);
+                    }
                 }
                 if self.machine.is_active() {
                     self.refresh_overlay(false);
@@ -880,6 +902,17 @@ impl App {
             AppEvent::InputDevices(devices) => {
                 tracing::debug!(count = devices.len(), "input device list ready");
                 self.settings.input_devices = Some(devices);
+                Vec::new()
+            }
+            AppEvent::Update(result) => {
+                match result {
+                    Ok(outcome) => {
+                        if let Some(text) = update::notice(&outcome) {
+                            self.set_notice(text);
+                        }
+                    }
+                    Err(error) => tracing::warn!(%error, "the update check failed"),
+                }
                 Vec::new()
             }
             AppEvent::ModelProgress {
