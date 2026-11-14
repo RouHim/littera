@@ -113,6 +113,160 @@ jobs:
           archive="littera-$VERSION-x86_64.tar.gz"
           gh release upload "v$VERSION" "$archive" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --clobber
 
+  deb:
+    name: build amd64 deb
+    needs: release
+    if: needs.release.outputs.published == 'true'
+    runs-on: ubuntu-24.04
+    # Pinned to the oldest supported userland. The control file derives
+    # `libc6 (>= …)` from the binary actually built here, so a newer image
+    # would silently raise the .deb's floor.
+    container: ubuntu:24.04
+    # Container jobs run `run:` steps through the image's /bin/sh, which is
+    # dash on ubuntu:24.04; dash rejects `set -o pipefail`. bash ships in the
+    # image, so pin every step in this job to it.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: System dependencies
+        run: |
+          set -eu
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config git curl ca-certificates \
+            libasound2-dev libvulkan-dev glslc glslang-tools spirv-headers \
+            libxkbcommon-dev libxcb1-dev
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.release.outputs.version }}
+      # Separate key prefix: this target tree belongs to the noble toolchain,
+      # never to the Arch container's.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.rustup
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: deb-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'Cargo.toml') }}
+          restore-keys: |
+            deb-${{ runner.os }}-${{ runner.arch }}-
+      - name: Rust toolchain
+        run: |
+          set -euo pipefail
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --default-toolchain stable
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      # TRANSCRIBE_USE_SYSTEM_BLAS=OFF is explicit: Debian and Ubuntu keep
+      # cblas.h outside the paths transcribe.cpp and build.rs probe, so the
+      # host decoder would fall back silently. Pin that posture — the official
+      # Python wheels ship it too — and skip libblas/libcblas entirely.
+      - name: Build
+        env:
+          TRANSCRIBE_CMAKE_ARGS: -DTRANSCRIBE_X86_CONSERVATIVE=ON -DTRANSCRIBE_USE_SYSTEM_BLAS=OFF
+        run: cargo build --release --locked
+      - name: Package
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          root="dist/deb"
+          install -Dm755 target/release/littera "$root/usr/bin/littera"
+          strip "$root/usr/bin/littera"
+          install -Dm644 assets/icon/littera.desktop "$root/usr/share/applications/littera.desktop"
+          install -d "$root/usr/share/icons"
+          cp -R assets/icon/hicolor "$root/usr/share/icons/"
+          install -Dm644 LICENSE "$root/usr/share/doc/littera/copyright"
+          gzip -9nc CHANGELOG.md > "$root/usr/share/doc/littera/changelog.gz"
+          chmod -R u=rwX,go=rX "$root"
+          install -d "$root/DEBIAN"
+          # Same derivation as the AUR recipe: the highest glibc symbol the
+          # binary actually needs is the Debian dependency floor.
+          glibc=$(readelf --version-info "$root/usr/bin/littera" \
+            | grep -o 'GLIBC_[0-9][0-9.]*' | sort -Vu | tail -1 | cut -d_ -f2)
+          installed_size=$(du -sk --exclude=DEBIAN "$root" | cut -f1)
+          sed -e "s|__VERSION__|$VERSION|g" \
+              -e "s|__GLIBC__|$glibc|g" \
+              -e "s|__INSTALLED_SIZE__|$installed_size|g" \
+              packaging/debian/control.in > "$root/DEBIAN/control"
+          chmod 644 "$root/DEBIAN/control"
+          deb="littera_${VERSION}_amd64.deb"
+          dpkg-deb --build --root-owner-group "$root" "$deb"
+          sha256sum "$deb" | cut -d' ' -f1 > "$deb.sha256"
+          contents=$(mktemp)
+          dpkg-deb --contents "$deb" > "$contents"
+          grep -q ' \./usr/bin/littera$' "$contents"
+          grep -q ' \./usr/share/applications/littera.desktop$' "$contents"
+          grep -q ' \./usr/share/icons/hicolor/16x16/apps/littera.png$' "$contents"
+          rm -f "$contents"
+          if ldd "$root/usr/bin/littera" | grep -q 'not found'; then
+            echo "::error::the packaged binary has unresolved shared libraries"
+            ldd "$root/usr/bin/littera"
+            exit 1
+          fi
+          dpkg-deb --info "$deb"
+      - name: Upload the deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: littera-deb-${{ needs.release.outputs.version }}
+          path: |
+            littera_${{ needs.release.outputs.version }}_amd64.deb
+            littera_${{ needs.release.outputs.version }}_amd64.deb.sha256
+          if-no-files-found: error
+
+  deb-verify:
+    name: verify and publish deb
+    needs:
+      - release
+      - deb
+    if: needs.release.outputs.published == 'true'
+    # No job container: the fresh rootfs checks need the runner's Docker.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: littera-deb-${{ needs.release.outputs.version }}
+          path: dist
+      # A build container already carries every build dependency, so an
+      # in-container `apt install` would prove nothing about Depends. Install
+      # into pristine rootfs images instead, without Recommends, and run the
+      # documented diagnostics command in each.
+      - name: Install and smoke-test in fresh rootfs images
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -eu
+          deb="dist/littera_${VERSION}_amd64.deb"
+          test -f "$deb"
+          test "$(sha256sum "$deb" | cut -d' ' -f1)" = "$(cat "$deb.sha256")"
+          for image in ubuntu:24.04 debian:13; do
+            echo "::group::$image"
+            docker run --rm -e DEBIAN_FRONTEND=noninteractive \
+              -v "$PWD/$deb:/tmp/littera.deb:ro" "$image" \
+              sh -c '
+                set -eu
+                apt-get update
+                apt-get install -y --no-install-recommends /tmp/littera.deb
+                test -f /usr/bin/littera
+                test -f /usr/share/applications/littera.desktop
+                test -f /usr/share/icons/hicolor/256x256/apps/littera.png
+                littera --diagnostics
+              '
+            echo "::endgroup::"
+          done
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -eu
+          gh release upload "v$VERSION" \
+            "dist/littera_${VERSION}_amd64.deb" \
+            "dist/littera_${VERSION}_amd64.deb.sha256" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
   aur:
     name: publish AUR
     needs:

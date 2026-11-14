@@ -30,6 +30,13 @@ yay -S littera-bin    # or: paru -S littera-bin
 littera
 ```
 
+Debian 13+ and Ubuntu 24.04+ — grab the `.deb` from the [latest release](https://github.com/RouHim/littera/releases/latest); every asset ships a `.sha256`:
+
+```sh
+sudo apt install ./littera_<version>_amd64.deb
+littera
+```
+
 The first start opens a setup window for model, language, hotkey and a system check. The default model supports 32 languages, is about 750 MB, and downloads on first use. Smaller English-only models are in the settings.
 
 To build from source (Rust 1.98 or newer):

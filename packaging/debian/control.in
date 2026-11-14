@@ -1,0 +1,18 @@
+Package: littera
+Version: __VERSION__
+Section: sound
+Priority: optional
+Architecture: amd64
+Maintainer: rouhim <rouhim@users.noreply.github.com>
+Installed-Size: __INSTALLED_SIZE__
+Homepage: https://github.com/RouHim/littera
+Depends: libc6 (>= __GLIBC__), libgcc-s1, libstdc++6, libasound2t64 | libasound2, libvulkan1, libwayland-client0, libxkbcommon0
+Recommends: xdg-desktop-portal, mesa-vulkan-drivers, xdg-utils, libxkbcommon-x11-0, libx11-6, libxcursor1, libxi6, libxrandr2, libxinerama1
+Suggests: pipewire-alsa
+Description: Local voice dictation for Linux/Wayland
+ Littera runs entirely on your machine: press a global hotkey, speak, and
+ the transcript is inserted at the cursor of the focused application.
+ Recognition runs in-process with a statically linked speech engine
+ (Vulkan with a CPU fallback), with no cloud, no account, or separately
+ installed speech runtime. The first dictation downloads a SHA-256
+ verified speech model (about 751 MB) into the user's XDG data directory.
