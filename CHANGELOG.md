@@ -1,3 +1,9 @@
+## [1.3.0](https://github.com/RouHim/littera/compare/v1.2.0...v1.3.0) (2026-11-14)
+
+### Features
+
+* **update:** check for a newer release at startup and update owned binaries ([#12](https://github.com/RouHim/littera/issues/12)) ([70bae32](https://github.com/RouHim/littera/commit/70bae32239aa3281ddaa77681a99ea2c17373756))
+
 ## [1.2.0](https://github.com/RouHim/littera/compare/v1.1.0...v1.2.0) (2026-11-14)
 
 ### Features
