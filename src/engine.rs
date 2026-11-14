@@ -39,6 +39,9 @@ use crate::stream_lease::StreamLease;
 /// At most one `Partial` per window, so the overlay redraw rate stays bounded.
 const PARTIAL_THROTTLE: Duration = Duration::from_millis(100);
 
+/// The probe's reason when only the CPU device is registered (FR-005/FR-017).
+pub(crate) const NO_VULKAN_DEVICE: &str = "no Vulkan device found";
+
 /// What the engine ended up using — user-visible through diagnostics (FR-005, FR-022).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EngineInfo {
@@ -262,7 +265,7 @@ pub fn probe_devices(pref: BackendPreference) -> (Option<EngineInfo>, Option<Str
                     Some(EngineInfo {
                         backend: backend_label("cpu"),
                         device,
-                        fallback: Some("no Vulkan device found".to_owned()),
+                        fallback: Some(NO_VULKAN_DEVICE.to_owned()),
                     }),
                     None,
                 ),

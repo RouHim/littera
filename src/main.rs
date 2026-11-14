@@ -20,6 +20,7 @@ static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 mod app;
 mod audio;
+mod backend_status;
 mod clipboard;
 mod config;
 mod diagnostics;

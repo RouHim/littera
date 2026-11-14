@@ -497,6 +497,9 @@ pub struct App {
     model_idle_since: Option<Instant>,
     pub probe_info: Option<engine::EngineInfo>,
     pub probe_error: Option<String>,
+    /// The last successful load's report, kept across an idle unload so the
+    /// settings plate can label a contradicted fallback as history (FR-012/FR-017).
+    pub last_backend: Option<engine::EngineInfo>,
 
     pub capture: Option<audio::Capture>,
     /// Generation of the recording currently being captured.
@@ -674,6 +677,7 @@ impl App {
             model_idle_since: None,
             probe_info,
             probe_error,
+            last_backend: None,
             capture: None,
             chunk_generation: 0,
             clipboard,
@@ -1032,8 +1036,12 @@ impl App {
                 if let Some(fallback) = &info.fallback {
                     // FR-005: a CPU fallback must stay user-visible now that the
                     // settings diagnostics tab is gone.
-                    self.set_notice(format!("Running on the CPU backend — {fallback}"));
+                    self.set_notice(format!(
+                        "Running on the CPU backend — {}",
+                        diagnostics::fallback_cause(fallback)
+                    ));
                 }
+                self.last_backend = Some(info.clone());
                 self.model_status = ModelStatus::Resident(info);
                 self.model_idle_since = Some(now);
                 self.refresh_checks();
@@ -1543,6 +1551,10 @@ impl App {
 
                 self.model = selection;
                 self.model_path = path.clone();
+                self.last_backend = None;
+                self.model_status = ModelStatus::Loading;
+                self.model_idle_since = None;
+                self.refresh_checks();
                 if self.onboarding.selection() == selection {
                     self.onboarding.model_ready = true;
                 }
@@ -1698,8 +1710,14 @@ impl App {
     pub fn adopt(&mut self, selection: Selection) -> Vec<Task<Message>> {
         self.model = selection;
         self.model_path = models::path_for(selection.artifact).unwrap_or_default();
+        // The previous model's report must never be attached to the new selection
+        // (FR-002/FR-012); the engine's Loading/Ready events replace the state.
+        self.last_backend = None;
+        self.model_idle_since = None;
 
         if self.model_path.exists() {
+            self.model_status = ModelStatus::Loading;
+            self.refresh_checks();
             let backend = self.cfg.snapshot().backend;
             self.engine.send(engine::EngineCmd::LoadModel(
                 self.model_path.clone(),
@@ -1707,6 +1725,8 @@ impl App {
             ));
             Vec::new()
         } else {
+            self.model_status = ModelStatus::NotResident;
+            self.refresh_checks();
             vec![self.start_download(selection)]
         }
     }

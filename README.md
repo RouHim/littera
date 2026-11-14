@@ -71,6 +71,7 @@ A build run straight from `target/release` is never replaced by the updater; reb
 - Or hold the hotkey while you speak, then release.
 - The transcript is pasted at your cursor. Terminals often need Ctrl+Shift+V instead.
 - The tray icon opens the settings. Change the hotkey, language or model there. Changes apply immediately.
+- The settings window states the compute backend: `Vulkan on <device>` when hardware acceleration is active, or the CPU with its fallback reason and the driver fix when it is not. `backend = cpu` reads as a deliberate `(selected)` choice, not a failure.
 
 ## Configuration
 
