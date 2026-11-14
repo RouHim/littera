@@ -347,8 +347,11 @@ fn download_binary(agent: &ureq::Agent, url: &str, destination: &Path) -> Result
         file.write_all(&buffer[..read])
             .with_context(|| format!("cannot write to {}", destination.display()))?;
     }
-    file.flush()
-        .with_context(|| format!("cannot flush {}", destination.display()))
+    // `File::flush` is a no-op for a plain file: sync to the device so a crash
+    // after the rename cannot leave a truncated or zero-filled binary in place
+    // of the only runnable one.
+    file.sync_all()
+        .with_context(|| format!("cannot sync {}", destination.display()))
 }
 
 /// The digest GitHub publishes per asset, `algorithm:hex` (FR-026).
