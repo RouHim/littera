@@ -52,7 +52,7 @@ const NOTICE_INSTALLED: &str = "Littera {version} installed — restart to apply
 const NOTICE_PACMAN: &str =
     "Littera {version} is available — update via your AUR helper (yay -Syu or paru -Syu)";
 const NOTICE_DPKG: &str =
-    "Littera {version} is available — run: sudo apt install --only-upgrade littera";
+    "Littera {version} is available — download littera_{version}_amd64.deb from the release page";
 const NOTICE_RELEASE_PAGE: &str =
     "Littera {version} is available — download it from the release page";
 const NOTICE_SOURCE_BUILD: &str =
@@ -525,7 +525,7 @@ mod tests {
     const PACMAN_NOTICE: &str =
         "Littera 1.2.0 is available — update via your AUR helper (yay -Syu or paru -Syu)";
     const DPKG_NOTICE: &str =
-        "Littera 1.2.0 is available — run: sudo apt install --only-upgrade littera";
+        "Littera 1.2.0 is available — download littera_1.2.0_amd64.deb from the release page";
     const RELEASE_PAGE_NOTICE: &str =
         "Littera 1.2.0 is available — download it from the release page";
     const SOURCE_BUILD_NOTICE: &str =

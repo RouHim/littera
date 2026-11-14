@@ -60,7 +60,7 @@ cargo build --release
 ./target/release/littera
 ```
 
-A checkout build is never replaced by the updater; rebuild it when a release lands. To give it an app-menu entry and the portal hotkey route, install the entry and icons as above (including the `install -d` for the icons directory), pointing `install` at `target/release/littera`.
+A build run straight from `target/release` is never replaced by the updater; rebuild it when a release lands. A copy installed under `~/.local/bin` is a Littera-owned install, so the next release replaces it in place. To give the checkout build an app-menu entry and the portal hotkey route, install the entry and icons as above (including the `install -d` for the icons directory), pointing `install` at `target/release/littera`.
 
 ## Use
 
@@ -71,11 +71,11 @@ A checkout build is never replaced by the updater; rebuild it when a release lan
 
 ## Updates
 
-Littera asks GitHub once per start whether a newer release exists and shows the answer in the overlay notice. That request is the only automatic network access — model downloads are always user-initiated — and nothing is stored about it.
+Littera asks GitHub once per start whether a newer release exists and shows the answer in the overlay notice. That check is the only automatic network access: one request per start, plus the verified update download when Littera owns the binary. Model downloads are always user-initiated, and nothing is stored about the check.
 
 - A binary you installed yourself with the tarball route is replaced in place: the published SHA-256 must match and the new file must report the expected version before it is renamed over the running one. It applies on the next start.
-- A pacman- or dpkg-owned binary is never written to. The notice names the command to run — `yay -Syu` / `paru -Syu` for the AUR package, `sudo apt install --only-upgrade littera` for the `.deb`.
-- A checkout build is left alone; rebuild with `cargo build --release`.
+- A pacman- or dpkg-owned binary is never written to. The notice names how to get the release — `yay -Syu` / `paru -Syu` for the AUR package, and the release-page `littera_<version>_amd64.deb` for the `.deb` (`sudo apt install ./littera_<version>_amd64.deb`).
+- A build run from `target/release` is left alone; rebuild with `cargo build --release`. A copy under `~/.local/bin` is updated like any other install Littera owns.
 
 ## Troubleshooting
 

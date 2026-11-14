@@ -42,14 +42,14 @@ without a restart prompt blocking anything.
 ### Scenario 3 - A package-managed binary is never touched (P1)
 
 **Acceptance**
-1. Given `/usr/bin/littera` owned by pacman or dpkg, When a newer release exists, Then no file is written and the notice names the AUR helper or `apt` command.
+1. Given `/usr/bin/littera` owned by pacman or dpkg, When a newer release exists, Then no file is written and the notice names the AUR helper command or, for dpkg, the release-page `.deb` (`littera_<version>_amd64.deb`).
 2. Given a writable binary outside `$HOME` (or one whose parent directory is not writable), When a newer release exists, Then no file is written and the notice points at the release page.
 
 ## Functional Requirements
 
 - **FR-023**: The daemon MUST check `https://api.github.com/repos/RouHim/littera/releases/latest` at most once per process start, only after onboarding is complete, off the boot path, with a 5 s timeout, `User-Agent: littera/<version>` and `Accept: application/vnd.github+json`. A failed check (offline, TLS, non-2xx, unparseable body) MUST leave the app unaffected and MUST be recorded only in the log. The CLI modes MUST NOT check.
 - **FR-024**: A release counts only when its tag is `v<major>.<minor>.<patch>` and strictly newer than the running crate version; anything unparsable is ignored. Drafts and prereleases are excluded by the endpoint.
-- **FR-025**: Littera MUST replace the running binary only when all of the following hold: no package manager owns it (`pacman -Qo`, `dpkg -S`), its path is under `$HOME`, no path component is `target`, and both the file and its parent directory are writable. Otherwise it MUST NOT write, and the notice MUST name the remedy: AUR helper, `apt`, release page, or rebuild from source respectively.
+- **FR-025**: Littera MUST replace the running binary only when all of the following hold: no package manager owns it (`pacman -Qo`, `dpkg -S`), its path is under `$HOME`, no path component is `target`, and both the file and its parent directory are writable. Otherwise it MUST NOT write, and the notice MUST name the remedy: AUR helper, the release-page `littera_<version>_amd64.deb`, release page, or rebuild from source respectively.
 - **FR-026**: The update MUST use the release's exact `littera-x86_64` asset and verify it against the published `littera-x86_64.sha256` (bare digest) and, when present, GitHub's per-asset `sha256:` digest. The verified file MUST be made executable, MUST report the expected version through `littera --version`, and MUST replace the running binary by rename in the same directory. On any failure the old binary MUST remain and the temporary file MUST be removed.
 - **FR-027**: The outcome MUST surface only as the existing transient overlay notice (8 s, non-interactive); no tray item, settings row, modal, persisted state or config key may be added. A successful in-place update MUST take effect on the next process start, without an automatic restart.
 - **FR-028**: `littera --version` MUST print `littera <semver>` and exit 0, and the usage string MUST list it. The release pipeline MUST publish the standalone `littera-x86_64` binary and its `.sha256` next to the tarball.
