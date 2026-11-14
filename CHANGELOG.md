@@ -1,3 +1,9 @@
+## [1.2.0](https://github.com/RouHim/littera/compare/v1.1.0...v1.2.0) (2026-11-14)
+
+### Features
+
+* **release:** publish a Debian package as a release asset ([#9](https://github.com/RouHim/littera/issues/9)) ([4dc3bbb](https://github.com/RouHim/littera/commit/4dc3bbbf2a7e8ad361da5f21ffee3699d9febb52))
+
 ## [1.1.0](https://github.com/RouHim/littera/compare/v1.0.8...v1.1.0) (2026-11-09)
 
 ### Features
