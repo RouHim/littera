@@ -2,7 +2,16 @@
 
 ![Littera](assets/banner.png)
 
-Voice dictation for Linux: press a hotkey, speak, and the text appears at your cursor.
+<p align="center">
+    <a href="https://github.com/RouHim/littera/actions/workflows/ci.yml"><img src="https://github.com/RouHim/littera/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/RouHim/littera/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/RouHim/littera?label=release"></a>
+    <a href="https://aur.archlinux.org/packages/littera-bin"><img alt="AUR version" src="https://img.shields.io/aur/version/littera-bin?label=AUR"></a>
+    <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/github/license/RouHim/littera"></a>
+</p>
+
+<p align="center">
+    <i>Voice dictation for Linux: press a hotkey, speak, and the text appears at your cursor.</i>
+</p>
 
 ![Littera settings window with the model list, language filter and hotkey status](assets/screenshot.png)
 
