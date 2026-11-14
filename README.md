@@ -1,5 +1,3 @@
-# Littera
-
 ![Littera](assets/banner.png)
 
 <p align="center">
