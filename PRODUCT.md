@@ -108,8 +108,10 @@ tooling cannot truthfully claim.
 
 ## Evidence on Hand
 
-- `.spec/wayland-voice-dictation.md` — the approved spec: Scenarios,
-  FR-001…FR-022, SC-001…SC-010. The requirements authority for this product.
+- `.spec/` — the approved specs: `wayland-voice-dictation.md` (Scenarios,
+  FR-001…FR-022, SC-001…SC-010) plus the feature specs that extend it (model
+  catalog, list rows, idle unload, update check). The requirements authority
+  for this product.
 - `DESIGN.md` + `.impeccable/design.json` — the built visual system ("The First
   Reader"), written from the shipped code; `.impeccable/surfaces/settings.md`
   holds the chosen direction contract.

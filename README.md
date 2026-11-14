@@ -39,16 +39,28 @@ littera
 
 The first start opens a setup window for model, language, hotkey and a system check. The default model supports 32 languages, is about 750 MB, and downloads on first use. Smaller English-only models are in the settings.
 
+Any distribution — download `littera-<version>-x86_64.tar.gz` from the [latest release](https://github.com/RouHim/littera/releases/latest) and install it for your user:
+
+```sh
+tar xzf littera-<version>-x86_64.tar.gz
+install -Dm755 littera-<version>-x86_64/littera ~/.local/bin/littera
+install -Dm644 littera-<version>-x86_64/littera.desktop ~/.local/share/applications/littera.desktop
+install -d ~/.local/share/icons
+cp -R littera-<version>-x86_64/icons/hicolor ~/.local/share/icons/
+~/.local/bin/littera
+```
+
+The desktop entry is what the global-shortcut portal identifies Littera by (`Exec=littera` resolves on `PATH`, which includes `~/.local/bin` in a login shell), so install it even from a checkout. This route carries the same runtime dependencies as the Arch package. A binary installed under your home directory updates itself — see [Updates](#updates).
+
 To build from source (Rust 1.98 or newer):
 
 ```sh
 sudo pacman -S --needed base-devel cmake vulkan-headers spirv-headers vulkan-icd-loader shaderc alsa-lib blas cblas
 cargo build --release
-./install-desktop.sh
 ./target/release/littera
 ```
 
-`install-desktop.sh` installs the desktop entry that the hotkey dialog needs.
+A checkout build is never replaced by the updater; rebuild it when a release lands. To give it an app-menu entry and the portal hotkey route, install the entry and icons as above (including the `install -d` for the icons directory), pointing `install` at `target/release/littera`.
 
 ## Use
 
@@ -56,6 +68,14 @@ cargo build --release
 - Or hold the hotkey while you speak, then release.
 - The transcript is pasted at your cursor. Terminals often need Ctrl+Shift+V instead.
 - The tray icon opens the settings. Change the hotkey, language or model there. Changes apply immediately.
+
+## Updates
+
+Littera asks GitHub once per start whether a newer release exists and shows the answer in the overlay notice. That request is the only automatic network access — model downloads are always user-initiated — and nothing is stored about it.
+
+- A binary you installed yourself with the tarball route is replaced in place: the published SHA-256 must match and the new file must report the expected version before it is renamed over the running one. It applies on the next start.
+- A pacman- or dpkg-owned binary is never written to. The notice names the command to run — `yay -Syu` / `paru -Syu` for the AUR package, `sudo apt install --only-upgrade littera` for the `.deb`.
+- A checkout build is left alone; rebuild with `cargo build --release`.
 
 ## Troubleshooting
 
@@ -65,7 +85,7 @@ littera --diagnostics
 
 The check covers hotkey access, paste permission, GPU and overlay. Each failure comes with a fix. Littera also opens a problem window at startup when something is wrong.
 
-- Hotkey does nothing: for a source install, run `./install-desktop.sh` and restart Littera. If the diagnostics ask for it, run `sudo usermod -aG input $USER`, then log in again.
+- Hotkey does nothing: for a source install, install the desktop entry as described under Install and restart Littera. If the diagnostics ask for it, run `sudo usermod -aG input $USER`, then log in again.
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand. The diagnostics name the blocked path.
 - Your files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`.
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).

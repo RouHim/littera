@@ -110,7 +110,7 @@ async fn connection() -> Result<zbus::Connection, PortalError> {
 /// Hand [`APP_ID`] to the host portal registry over `connection`.
 ///
 /// The portal resolves app info from an *installed desktop entry*, so the id
-/// is the entry's stem — `littera.desktop` from `install-desktop.sh` — and a
+/// is the entry's stem — `littera.desktop`, installed from `assets/icon/` — and a
 /// dotted application id is rejected as unknown. That spelling cannot travel
 /// through `ashpd::register_host_app` (its `AppID` demands a dotted name), so
 /// this call goes over `zbus` directly.

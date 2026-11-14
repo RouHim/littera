@@ -96,6 +96,10 @@ jobs:
           archive="littera-$VERSION-x86_64.tar.gz"
           tar -C dist -czf "$archive" "littera-$VERSION-x86_64"
           sha256sum "$archive" | cut -d' ' -f1 > "$archive.sha256"
+          # The standalone binary backs the in-app updater (FR-026): the same
+          # stripped build the tarball carries, published with its own digest.
+          install -Dm755 "$dir/littera" dist/littera-x86_64
+          sha256sum dist/littera-x86_64 | cut -d' ' -f1 > dist/littera-x86_64.sha256
           # The AUR recipe installs from icons/hicolor; a flat icons/ tree
           # breaks package() and is invisible to a checksum check.
           tar tzf "$archive" | grep -q 'icons/hicolor/16x16/apps/littera.png'
@@ -111,7 +115,9 @@ jobs:
         run: |
           set -eu
           archive="littera-$VERSION-x86_64.tar.gz"
-          gh release upload "v$VERSION" "$archive" "$archive.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "v$VERSION" "$archive" "$archive.sha256" \
+            dist/littera-x86_64 dist/littera-x86_64.sha256 \
+            --repo "$GITHUB_REPOSITORY" --clobber
 
   deb:
     name: build amd64 deb
