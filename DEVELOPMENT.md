@@ -50,8 +50,9 @@ green local run and a green CI run can still differ in compiler version — CI i
 The `#[ignore]`d tests cover the X11 window properties, layer-shell show/draw/hide, the
 clipboard ownership/snapshot/restore flow (needs `wl-clipboard`), and the GitHub release
 endpoint (needs the network). They are **not part of CI** (the runner has no compositor), so
-run them locally before touching those paths. They all use the shared guards in `src/main.rs`
-(`test_support`) and print why they skipped instead of passing or panicking silently.
+run them locally before touching those paths. The compositor and clipboard ones use the shared
+guards in `src/main.rs` (`test_support`) and print why they skipped instead of passing or
+panicking silently; the release-endpoint one talks to the live API unconditionally.
 
 ## CLI surface
 
@@ -77,7 +78,7 @@ Build-time: `CBLAS_NO_LINK`, `TRANSCRIBE_DIR`, `TRANSCRIBE_CMAKE_ARGS`, `CMAKE_A
 
 The binary links `libasound`, `libc`, `libgcc_s`, `libm`, `libstdc++` and `libvulkan` (checked
 with `readelf -d`). Wayland (`libwayland-client`), `libxkbcommon`, `libX11`, `libXi` and
-`libxcb` are `dlopen`ed; the X11 ones only on the overlay/X11-clipboard fallback paths. The
+`libxcb` are `dlopen`ed; the X11 ones only on the overlay/X11-clipboard fallback paths.
 The `.deb` declares the hard runtime set in `Depends` and the optional/XWayland pieces in
 `Recommends`; the AUR recipe declares the same hard set, including `wayland` and
 `libxkbcommon`.
@@ -100,10 +101,11 @@ A push to `main` runs `.github/workflows/release.yml`:
 1. **semantic-release** reads the Conventional PR titles, writes `CHANGELOG.md`, bumps
    `Cargo.toml`/`Cargo.lock` (`scripts/bump-version.sh`), tags `vX.Y.Z` and publishes the
    GitHub release.
-2. **build** (Arch container) compiles the release tarball, the standalone binary and the
-   `.deb`, and uploads the tarball assets.
-3. **deb-verify** installs the `.deb` into pristine `ubuntu:24.04` and `debian:13` rootfs
-   images, runs `littera --diagnostics`, then uploads the `.deb`.
+2. **build** (Arch container) compiles the release tarball and the standalone binary, and
+   uploads the tarball assets.
+3. **deb** (pinned `ubuntu:24.04` container, building from the `vX.Y.Z` tag) compiles the
+   `.deb`; **deb-verify** then installs it into pristine `ubuntu:24.04` and `debian:13` rootfs
+   images, runs `littera --diagnostics`, and uploads it.
 4. **aur** renders `packaging/PKGBUILD` with the version, SHA-256 and glibc floor and pushes
    `littera-bin` to the AUR.
 

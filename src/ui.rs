@@ -66,7 +66,7 @@ pub enum Message {
     InsertionFinished {
         detached: bool,
         chars: usize,
-        /// Dictation cycle the insertion belongs to (0 for a detached cycle).
+        /// Dictation cycle the insertion belongs to; ignored for detached results.
         cycle: u64,
         outcome: Result<crate::inserter::InsertOutcome, String>,
     },

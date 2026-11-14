@@ -509,6 +509,10 @@ pub struct App {
     pub overlay_backend: overlay::OverlayBackend,
     pub overlay_reason: String,
     overlay_visible: bool,
+    /// Set whenever a show/draw command was sent or failed: a reply timeout does not
+    /// prove the queued command did not map a window, so a later frame-less refresh
+    /// must still hide it.
+    overlay_needs_hide: bool,
     last_overlay_draw: Option<Instant>,
 
     pub hotkey: Option<hotkey::HotkeyHandle>,
@@ -678,6 +682,7 @@ impl App {
             overlay_backend,
             overlay_reason,
             overlay_visible: false,
+            overlay_needs_hide: false,
             last_overlay_draw: None,
             hotkey: None,
             binding: None,
@@ -1345,9 +1350,15 @@ impl App {
     /// Push the current frame to the overlay presenter (FR-011).
     pub fn refresh_overlay(&mut self, force: bool) {
         let Some(frame) = self.frame() else {
-            if self.overlay_visible {
-                if let Err(error) = self.overlay.hide() {
-                    tracing::warn!(%error, "hiding the overlay failed");
+            // A previous show/draw may have taken effect even though its reply timed
+            // out, so an unseen window is hidden here rather than left mapped.
+            if self.overlay_visible || self.overlay_needs_hide {
+                match self.overlay.hide() {
+                    Ok(()) => self.overlay_needs_hide = false,
+                    Err(error) => {
+                        tracing::warn!(%error, "hiding the overlay failed");
+                        self.overlay_needs_hide = true;
+                    }
                 }
                 self.overlay_visible = false;
                 self.last_overlay_draw = None;
@@ -1360,8 +1371,10 @@ impl App {
             .is_none_or(|last| last.elapsed() >= Duration::from_millis(100));
 
         let result = if !self.overlay_visible {
+            self.overlay_needs_hide = true;
             self.overlay.show(&frame)
         } else if force || due {
+            self.overlay_needs_hide = true;
             self.overlay.draw(&frame)
         } else {
             return;
@@ -1370,11 +1383,13 @@ impl App {
         match result {
             Ok(()) => {
                 self.overlay_visible = true;
+                self.overlay_needs_hide = false;
                 self.last_overlay_draw = Some(Instant::now());
             }
             Err(error) => {
                 tracing::warn!(%error, "overlay presentation failed; continuing without the indicator");
                 self.overlay_visible = false;
+                self.overlay_needs_hide = true;
                 self.last_overlay_draw = None;
             }
         }

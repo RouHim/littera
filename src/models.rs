@@ -24,7 +24,8 @@ const PROGRESS_INTERVAL: Duration = Duration::from_millis(100);
 /// How long the agent waits for a connection / the response headers before failing.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// How long the agent waits between body bytes before treating the transfer as stalled.
+/// Per transport read: how long one body read may take before the transfer counts as
+/// stalled. It restarts for every read, so it never caps the total transfer time.
 const BODY_TIMEOUT: Duration = Duration::from_secs(60);
 /// Read buffer used when hashing an already-downloaded `.part` prefix.
 const HASH_BUFFER_BYTES: usize = 1024 * 1024;
@@ -332,7 +333,7 @@ fn transfer_to_part(
         // A stalled CDN must fail the download instead of hanging the blocking pool.
         .timeout_connect(Some(CONNECT_TIMEOUT))
         .timeout_recv_response(Some(CONNECT_TIMEOUT))
-        .timeout_recv_body(Some(BODY_TIMEOUT))
+        .timeout_per_read(Some(BODY_TIMEOUT))
         // Artifacts only ever come from HTTPS, and no redirect may leave it. The
         // local test fixture opts out explicitly.
         .https_only(!allow_plain_http)
