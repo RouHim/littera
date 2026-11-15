@@ -1084,6 +1084,7 @@ impl App {
                 // The countdown starts again from the moment the dictation ends
                 // (FR-008).
                 self.model_idle_since = Some(now);
+                self.release_unselected_model();
                 let effects = self.machine.final_text(text, now);
                 self.run(effects)
             }
@@ -1093,6 +1094,7 @@ impl App {
             }
             engine::EngineEvent::Failed { message } => {
                 self.model_idle_since = Some(now);
+                self.release_unselected_model();
                 self.engine_failure(message, now)
             }
         }
@@ -1725,10 +1727,32 @@ impl App {
             ));
             Vec::new()
         } else {
+            // FR-015: the previously loaded model leaves the engine now, not when
+            // this download finishes — a failed, cancelled or abandoned download
+            // must not keep its host RAM and VRAM pinned. The engine refuses the
+            // request while a dictation is in flight (it must not drop the model
+            // under a live session), so `release_unselected_model` repeats it.
             self.model_status = ModelStatus::NotResident;
+            self.engine.send(engine::EngineCmd::Unload);
             self.refresh_checks();
             vec![self.start_download(selection)]
         }
+    }
+
+    /// Ask the engine to release the weights of a model the app no longer has as
+    /// the selected one (FR-015).
+    ///
+    /// Loading a present file drops the previous model inside the worker, so this
+    /// only covers the selection that is still on its way to the disk. An
+    /// accepted request answers with `Unloaded`; a refused one (a dictation was
+    /// in flight) is repeated at every dictation end. Releasing nothing is a
+    /// no-op in the worker.
+    fn release_unselected_model(&mut self) {
+        if !matches!(self.model_status, ModelStatus::NotResident) || self.model_path.exists() {
+            return;
+        }
+        tracing::debug!("releasing the previously loaded model");
+        self.engine.send(engine::EngineCmd::Unload);
     }
 
     /// Select a catalog artifact: persist it and adopt it, i.e. load it when the
