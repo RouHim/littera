@@ -90,7 +90,7 @@ The overlay is pinned to the bottom centre wherever the platform allows it, and 
 - **FR-019**: User-visible failures MUST be actionable text naming cause and remedy, never silent. Internal logging MUST use `tracing` with contextual spans instead of `println!`.
 - **FR-020**: Non-test code MUST NOT use `unwrap`/`expect`. HTTPS downloads MUST use rustls. Static UI assets (fonts, icons) MUST be embedded in the binary, and the repository MUST pass `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test`.
 - **FR-021**: The source MUST be organized as flat, single-responsibility Rust files declared at the crate root, without nested module trees; engine, hotkey source, text inserter, and overlay presentation MUST sit behind narrow interfaces so each can be replaced or tested independently.
-- **FR-022**: `littera --diagnostics` MUST expose the effective backend, device, model, language and hotkey mechanism with their fallback states in one output, so support questions can be answered without reading logs.
+- **FR-022**: `littera --diagnostics` MUST expose the selected backend and device, the backend preference, the model, language and hotkey mechanism with their fallback states in one output, so support questions can be answered without reading logs.
 
 ## Key Entities
 

@@ -37,6 +37,17 @@ The user changes the new setting and the change is persisted and effective immed
 2. Given the model is resident, When the user selects a different preset (e.g. 5 minutes), Then the config file is updated immediately and the new timeout applies without restarting the app.
 3. Given the model has already been idle longer than a newly selected shorter timeout, When the selection is made, Then the unload happens promptly without a restart.
 
+### Scenario 4 - Backend acceleration is legible in settings (P1)
+
+The user opens settings to answer whether dictation runs on the GPU or on the CPU — before or after the model has loaded — and whether a CPU fallback is deliberate.
+
+**Acceptance**
+1. Given the model is resident on Vulkan, When the settings window is open, Then the Backend row reads `Vulkan on <device>`.
+2. Given the model is not resident and the probe found Vulkan, When the settings window is open, Then the Backend row reads `Vulkan on <device> — loads with the next dictation`.
+3. Given the CPU backend was configured, When the model is resident or predicted, Then the row marks it `(selected)` and shows no warning.
+4. Given the engine fell back to CPU, When the model is resident, Then the row reads `CPU on <device>` with a warning naming the cause and a Fix line naming the exact command.
+5. Given the model was unloaded after a fallback while the probe now finds Vulkan, Then a `Last load:` line states that outcome without presenting the old backend as current.
+
 ## Functional Requirements
 
 - **FR-001**: The app MUST expose the selected model's load lifecycle to the GUI with at least these states: loading, resident (with the active backend and device), not resident (unloaded), failed (with reason).
@@ -50,11 +61,12 @@ The user changes the new setting and the change is persisted and effective immed
 - **FR-009**: Automatic unload MUST happen only when the engine is idle — no active or queued dictation, no transcript still in flight, no download, verification or load running — and MUST otherwise be deferred until these conditions hold.
 - **FR-010**: The countdown MUST run while a model is resident, regardless of window visibility or user interaction.
 - **FR-011**: Automatic unload MUST release the memory the model occupies (host RAM and, on GPU runs, VRAM) and MUST leave the app fully operational (hotkey, tray, IPC socket, settings) and able to reload later.
-- **FR-012**: After an automatic unload, the GUI MUST show the not-resident state, including that the next dictation reloads the model; the previously reported backend/device MUST NOT be shown as current.
+- **FR-012**: After an automatic unload, the GUI MUST show the not-resident state, including that the next dictation reloads the model; the previously reported backend/device MUST NOT be shown as current. A clearly labelled last-load line MAY state the previous load's outcome when it differs from the probed capability and MUST NOT replace or precede the current prediction.
 - **FR-013**: With the setting at Never, no automatic unload MUST occur; the model stays resident until app exit or until it is replaced by a model switch.
 - **FR-014**: After an automatic unload the app MUST NOT reload the model until it is next needed (a dictation, a completed download, or a model switch).
 - **FR-015**: Replacing the model (settings switch or onboarding finish) MUST release the previously loaded model's memory as today; the newly loaded model MUST follow the same idle rules.
 - **FR-016**: A reload failure MUST surface through the existing engine failure handling (dictation discarded with a visible reason) and MUST leave the app able to retry on the next use.
+- **FR-017**: The settings capability plate MUST state the compute-acceleration status in words: the active backend and device while the model is resident; the probed backend and device, qualified as loading with the next dictation, while it is not resident; a CPU path the user asked for (`backend = cpu`) marked as selected and never toned as a failure; an unrequested CPU fallback with its curated cause and the exact driver remedy; the reason when no compute device is available or the load failed; and, when the model is not resident, the last load's fallback only if it contradicts the probed capability. The plate MUST NOT encode the state by colour alone and MUST NOT show a previous load's backend or error as the current state.
 
 ## Key Entities
 
@@ -98,3 +110,4 @@ The user changes the new setting and the change is persisted and effective immed
 - **SC-004**: Ten repetitions of "dictate -> wait past the timeout -> dictate" yield ten complete transcripts, none missing its beginning and none requiring a second hotkey gesture.
 - **SC-005**: A timeout change is written to the config file immediately, survives a restart, and applies without one; a missing or unrecognized value falls back to the 15-minute default.
 - **SC-006**: After a failed reload, the app remains operational (hotkey, settings, diagnostics) and a subsequent attempt succeeds once the cause is removed.
+- **SC-007**: With a usable Vulkan device, settings shows `Vulkan on <device>` once resident and `Vulkan on <device> — loads with the next dictation` while not resident; `backend = cpu` shows a neutral `CPU on <device> (selected)` value; an unrequested fallback shows a warning with its curated cause and a Fix line naming the exact command (or the generic repair sentence); no state presents a previous load's backend as current.

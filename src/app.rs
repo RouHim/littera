@@ -497,6 +497,9 @@ pub struct App {
     model_idle_since: Option<Instant>,
     pub probe_info: Option<engine::EngineInfo>,
     pub probe_error: Option<String>,
+    /// The last successful load's report, kept across an idle unload so the
+    /// settings plate can label a contradicted fallback as history (FR-012/FR-017).
+    pub last_backend: Option<engine::EngineInfo>,
 
     pub capture: Option<audio::Capture>,
     /// Generation of the recording currently being captured.
@@ -674,6 +677,7 @@ impl App {
             model_idle_since: None,
             probe_info,
             probe_error,
+            last_backend: None,
             capture: None,
             chunk_generation: 0,
             clipboard,
@@ -1032,8 +1036,12 @@ impl App {
                 if let Some(fallback) = &info.fallback {
                     // FR-005: a CPU fallback must stay user-visible now that the
                     // settings diagnostics tab is gone.
-                    self.set_notice(format!("Running on the CPU backend — {fallback}"));
+                    self.set_notice(format!(
+                        "Running on the CPU backend — {}",
+                        diagnostics::fallback_cause(fallback)
+                    ));
                 }
+                self.last_backend = Some(info.clone());
                 self.model_status = ModelStatus::Resident(info);
                 self.model_idle_since = Some(now);
                 self.refresh_checks();
@@ -1076,6 +1084,7 @@ impl App {
                 // The countdown starts again from the moment the dictation ends
                 // (FR-008).
                 self.model_idle_since = Some(now);
+                self.release_unselected_model();
                 let effects = self.machine.final_text(text, now);
                 self.run(effects)
             }
@@ -1085,6 +1094,7 @@ impl App {
             }
             engine::EngineEvent::Failed { message } => {
                 self.model_idle_since = Some(now);
+                self.release_unselected_model();
                 self.engine_failure(message, now)
             }
         }
@@ -1543,6 +1553,10 @@ impl App {
 
                 self.model = selection;
                 self.model_path = path.clone();
+                self.last_backend = None;
+                self.model_status = ModelStatus::Loading;
+                self.model_idle_since = None;
+                self.refresh_checks();
                 if self.onboarding.selection() == selection {
                     self.onboarding.model_ready = true;
                 }
@@ -1698,8 +1712,14 @@ impl App {
     pub fn adopt(&mut self, selection: Selection) -> Vec<Task<Message>> {
         self.model = selection;
         self.model_path = models::path_for(selection.artifact).unwrap_or_default();
+        // The previous model's report must never be attached to the new selection
+        // (FR-002/FR-012); the engine's Loading/Ready events replace the state.
+        self.last_backend = None;
+        self.model_idle_since = None;
 
         if self.model_path.exists() {
+            self.model_status = ModelStatus::Loading;
+            self.refresh_checks();
             let backend = self.cfg.snapshot().backend;
             self.engine.send(engine::EngineCmd::LoadModel(
                 self.model_path.clone(),
@@ -1707,8 +1727,32 @@ impl App {
             ));
             Vec::new()
         } else {
+            // FR-015: the previously loaded model leaves the engine now, not when
+            // this download finishes — a failed, cancelled or abandoned download
+            // must not keep its host RAM and VRAM pinned. The engine refuses the
+            // request while a dictation is in flight (it must not drop the model
+            // under a live session), so `release_unselected_model` repeats it.
+            self.model_status = ModelStatus::NotResident;
+            self.engine.send(engine::EngineCmd::Unload);
+            self.refresh_checks();
             vec![self.start_download(selection)]
         }
+    }
+
+    /// Ask the engine to release the weights of a model the app no longer has as
+    /// the selected one (FR-015).
+    ///
+    /// Loading a present file drops the previous model inside the worker, so this
+    /// only covers the selection that is still on its way to the disk. An
+    /// accepted request answers with `Unloaded`; a refused one (a dictation was
+    /// in flight) is repeated at every dictation end. Releasing nothing is a
+    /// no-op in the worker.
+    fn release_unselected_model(&mut self) {
+        if !matches!(self.model_status, ModelStatus::NotResident) || self.model_path.exists() {
+            return;
+        }
+        tracing::debug!("releasing the previously loaded model");
+        self.engine.send(engine::EngineCmd::Unload);
     }
 
     /// Select a catalog artifact: persist it and adopt it, i.e. load it when the

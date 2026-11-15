@@ -30,7 +30,9 @@ use iced::{Element, Length, Task};
 
 use crate::app::App;
 use crate::audio;
+use crate::backend_status;
 use crate::config::{self, Config, IdleUnload, Language};
+use crate::diagnostics;
 use crate::hotkey;
 use crate::model_catalog::{self, Artifact, Selection, Variant};
 use crate::models;
@@ -563,23 +565,25 @@ fn dictation_section(app: &App) -> Element<'_, Action> {
     .into()
 }
 
-/// The capability plate (FR-005/FR-022): the machine's current truth, stated
-/// once as label/value fields — model, backend, microphone and hotkey, each
-/// value already worded. A fallback or a load failure keeps its reason in a
-/// placard under the frame; nothing here is ever a stale line.
+/// The capability plate (FR-005/FR-022, feature FR-017): the machine's current
+/// truth, stated once as label/value fields — model, backend, microphone and
+/// hotkey, each value already worded. A fallback or a load failure keeps its
+/// reason in a placard under the frame and its cached driver remedy in one Fix
+/// line; the only historical line is an explicitly labelled last load, and no
+/// state is ever presented as current when it is stale.
 fn capability_plate(app: &App) -> Element<'_, Action> {
     let config = app.cfg.snapshot();
     let selection = app.model;
-    // The plate states the engine's line in plain words; the pinned lifecycle
-    // strings stay with `model_state_line`, whose note is the only part the plate
-    // reuses.
-    let backend_text = match &app.model_status {
-        crate::app::ModelStatus::Resident(info) => format!("{} on {}", info.backend, info.device),
-        crate::app::ModelStatus::Loading => "Loading…".to_owned(),
-        crate::app::ModelStatus::Failed(_) => "Could not load".to_owned(),
-        crate::app::ModelStatus::NotResident => "Loads with the next dictation".to_owned(),
-    };
-    let note = ui::model_state_line(&app.model_status, &selection.label()).note;
+    let backend = backend_status::status(
+        &app.model_status,
+        app.probe_info.as_ref(),
+        app.probe_error.as_deref(),
+        config.backend,
+        app.last_backend.as_ref(),
+        cached_gpu_remediation(app),
+    );
+    let backend_text = backend.value;
+    let note = backend.note;
 
     let device = if config.input_device == config::INPUT_DEVICE_SYSTEM {
         "System default".to_owned()
@@ -627,7 +631,35 @@ fn capability_plate(app: &App) -> Element<'_, Action> {
     if let Some((note, tone)) = note {
         plate = plate.push(ui::banner(note, tone));
     }
+    if let Some(last_load) = backend.last_load {
+        plate = plate.push(ui::state_tag::<Action>(last_load, Tone::Warning));
+    }
+    if let Some(fix) = backend.fix {
+        plate = plate.push(fix_line(fix));
+    }
     plate.into()
+}
+
+/// The GPU check's cached remedy (FR-014/FR-017). `refresh_checks` already ran
+/// the live driver probe on the last load or recheck, so the plate never reads
+/// `/sys` per frame.
+fn cached_gpu_remediation(app: &App) -> Option<String> {
+    app.checks
+        .iter()
+        .find(|check| check.name == diagnostics::NAME_GPU)
+        .and_then(|check| check.remediation.clone())
+}
+
+/// The driver remedy as one labelled prose line under the plate: a remedy is
+/// prose, never a second placard (FR-014/FR-017).
+fn fix_line(fix: String) -> Element<'static, Action> {
+    row![
+        container(ui::key::<Action>("Fix")).width(Length::Fixed(metrics::FIELD_LABEL_WIDTH)),
+        ui::lead::<Action>(fix),
+    ]
+    .spacing(metrics::SPACE_SM)
+    .align_y(iced::Alignment::Start)
+    .into()
 }
 
 /// One plate field: the key in its label column, the value beside it.

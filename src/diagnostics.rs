@@ -15,7 +15,7 @@ use crate::vulkan_icd;
 
 const NAME_HOTKEY: &str = "hotkey access";
 const NAME_PASTE: &str = "paste permission";
-const NAME_GPU: &str = "GPU backend";
+pub(crate) const NAME_GPU: &str = "GPU backend";
 const NAME_OVERLAY: &str = "overlay backend";
 
 const REMEDIATION_HOTKEY: &str = "sudo usermod -aG input $USER && log out and back in";
@@ -171,19 +171,43 @@ pub fn gpu_check(
 
 /// Whether the engine abandoned the GPU the preference asked for (FR-005). A
 /// Vulkan backend that held up carries no fallback, and `cpu` was the request.
-fn fell_back(info: &EngineInfo, preference: BackendPreference) -> bool {
+pub(crate) fn fell_back(info: &EngineInfo, preference: BackendPreference) -> bool {
     info.fallback.is_some() && preference != BackendPreference::Cpu
 }
+
+/// The curated cause of an unrequested CPU fallback (feature FR-017).
+///
+/// `EngineInfo::fallback` carries the original load error, which can be any
+/// library string. The settings plate names the one fact a reader can act on:
+/// the probe's "no device" reason when it is present, a backend that could not
+/// initialize otherwise. The raw error stays in `tracing`.
+pub fn fallback_cause(reason: &str) -> &'static str {
+    if reason.contains(crate::engine::NO_VULKAN_DEVICE) {
+        crate::engine::NO_VULKAN_DEVICE
+    } else {
+        VULKAN_INIT_FAILED
+    }
+}
+
+/// What a fallback says when the GPU exists but refused to initialize.
+const VULKAN_INIT_FAILED: &str = "the Vulkan backend could not initialize";
 
 /// The GPU check as the app and `littera --diagnostics` render it: [`gpu_check`]
 /// with the live driver inventory attached. The probe runs only for a fallback,
 /// so a healthy machine reads no `/sys` for this check.
 pub fn gpu_check_probed(cfg: &Config, info: Option<&EngineInfo>, error: Option<&str>) -> Check {
     let missing_driver = match info {
-        Some(info) if fell_back(info, cfg.backend) => vulkan_icd::advice(),
+        Some(info) if fell_back(info, cfg.backend) => Some(gpu_remediation()),
         _ => None,
     };
     gpu_check(info, error, cfg.backend, missing_driver)
+}
+
+/// The GPU check's remedy: the command that installs the absent driver when the
+/// machine names one, the generic repair sentence otherwise (FR-014/FR-017).
+/// Callers that refresh per load — never per frame — may cache this.
+pub(crate) fn gpu_remediation() -> String {
+    vulkan_icd::advice().unwrap_or_else(|| REMEDIATION_GPU.to_owned())
 }
 
 /// `"{backend}: {device}"`, with the fallback notice appended when the engine had
@@ -307,6 +331,23 @@ mod tests {
         assert!(REMEDIATION_OVERLAY.contains("layer-shell compositor"));
         assert!(REMEDIATION_OVERLAY.ends_with("non-activating overlay"));
         assert_eq!(PASTE_OK_DETAIL, "/dev/uinput writable — auto-paste enabled");
+    }
+
+    #[test]
+    fn fallback_cause_names_the_probe_reason_or_a_curated_failure() {
+        assert_eq!(
+            fallback_cause("no Vulkan device found"),
+            "no Vulkan device found"
+        );
+        // A library error can embed the probe reason; the cause stays the same.
+        assert_eq!(
+            fallback_cause("model load failed: no Vulkan device found in the registry"),
+            "no Vulkan device found"
+        );
+        assert_eq!(
+            fallback_cause("Vulkan0: failed to create the device"),
+            "the Vulkan backend could not initialize"
+        );
     }
 
     #[test]

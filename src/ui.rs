@@ -1510,6 +1510,15 @@ const BACKEND_LABEL: &str = "Backend";
 /// Prefix of the fallback notice; the reason follows after an em dash (FR-005).
 const BACKEND_FALLBACK: &str = "CPU fallback";
 
+/// The one wording of an unrequested fallback (FR-005/FR-017), shared by the
+/// settings plate, the lifecycle cards and the engine's notice.
+pub(crate) fn fallback_text(reason: &str) -> String {
+    format!(
+        "{BACKEND_FALLBACK} — {}",
+        crate::diagnostics::fallback_cause(reason)
+    )
+}
+
 /// The model-state value line and its optional notice (FR-001/FR-002/FR-012).
 #[derive(Debug, PartialEq, Eq)]
 pub struct ModelStateLine {
@@ -1547,10 +1556,10 @@ pub fn model_state_line(status: &ModelStatus, label: &str) -> ModelStateLine {
     }
 }
 
-/// FR-005: a fallback is never silent — this is the reason the GPU path was
-/// abandoned, spelled the same way in the engine's notice.
+/// FR-005: a fallback is never silent — this is the curated reason the GPU path
+/// was abandoned, spelled the same way in settings and the engine's notice.
 fn fallback_note(reason: &str) -> (String, Tone) {
-    (format!("{BACKEND_FALLBACK} — {reason}"), Tone::Warning)
+    (fallback_text(reason), Tone::Warning)
 }
 
 /// The selected model's load lifecycle as one card (FR-001/FR-002/FR-012),
@@ -1762,7 +1771,7 @@ mod tests {
                 note: None,
             }
         );
-        // A CPU fallback keeps its reason (FR-005) under the same state.
+        // A CPU fallback keeps its curated cause (FR-005) under the same state.
         assert_eq!(
             model_state_line(
                 &ModelStatus::Resident(info(Some("failed to initialize the Vulkan backend"))),
@@ -1772,7 +1781,7 @@ mod tests {
                 caption: "Backend",
                 text: backend_text,
                 note: Some((
-                    "CPU fallback — failed to initialize the Vulkan backend".to_owned(),
+                    "CPU fallback — the Vulkan backend could not initialize".to_owned(),
                     Tone::Warning,
                 )),
             }
