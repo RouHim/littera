@@ -6,6 +6,8 @@ document is [README.md](README.md); the repository rules, architecture and invar
 
 ## Build from source
 
+Requires Rust 1.98 or newer (edition 2024).
+
 Arch (required packages before the first build):
 
 ```sh
@@ -30,6 +32,22 @@ artifacts run on baseline x86-64.
 There is no fully static build: the Vulkan loader `dlopen`s the ICD,
 `libwayland-client`/`libxkbcommon`/`libX11`/`libXi`/`libxcb` are loaded at runtime by the
 windowing stack, and ALSA `dlopen`s its PCM plugins.
+
+### Running a checkout build
+
+`target/release/littera` runs without installation. To give it the app-menu entry and the
+portal hotkey route, install the desktop entry, icons and a copy of the binary. `Exec=littera`
+resolves on `PATH`, which includes `~/.local/bin` in a login shell:
+
+```sh
+install -Dm644 assets/icon/littera.desktop ~/.local/share/applications/littera.desktop
+install -d ~/.local/share/icons
+cp -R assets/icon/hicolor ~/.local/share/icons/
+install -Dm755 target/release/littera ~/.local/bin/littera
+```
+
+The copy in `~/.local/bin` is a Littera-owned install, so the self-updater replaces it in
+place on the next release. The build tree itself is never touched.
 
 ## Verification
 
@@ -61,6 +79,22 @@ Exactly `--version`, `--diagnostics`, `--audio-file <16-kHz-mono-PCM-WAV>
 triggers the model download if the GGUF is missing. `--diagnostics` and `--audio-file` run
 without iced.
 
+## Configuration
+
+The settings window writes `~/.config/littera/config.toml`; the same values can be edited by
+hand. Every key is optional and an absent key keeps its default.
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `onboarding_complete` | `true`/`false` | `false` until setup finishes |
+| `model` | a catalog id (for example `nemotron-3.5-asr-streaming-0.6b-Q8_0`) | the multilingual Q8_0 variant |
+| `language` | `auto` or a locale from the catalog's language table (32 languages) | `auto`; an unknown token falls back to `auto` |
+| `hotkey` | a chord such as `CTRL+SUPER` | `CTRL+SUPER` |
+| `hotkey_source` | `portal`, `device` | omitted while default (automatic) |
+| `backend` | `auto`, `vulkan`, `cpu` | `auto` |
+| `input_device` | `system` or `<host>:<device>` | `system`; omitted while default |
+| `idle_unload` | `never`, `1`, `5`, `15`, `30`, `60` (minutes) | `15`; an unknown value falls back to `15` |
+
 ## Environment variables
 
 | Variable | Effect |
@@ -81,7 +115,7 @@ with `readelf -d`). Wayland (`libwayland-client`), `libxkbcommon`, `libX11`, `li
 `libxcb` are `dlopen`ed; the X11 ones only on the overlay/X11-clipboard fallback paths.
 The `.deb` declares the hard runtime set in `Depends` and the optional/XWayland pieces in
 `Recommends`; the AUR recipe declares the same hard set, including `wayland` and
-`libxkbcommon`.
+`libxkbcommon`. A tarball install needs the same runtime libraries as the Arch package.
 
 | Capability | Mechanism | Permission needed | Degradation when missing |
 | --- | --- | --- | --- |
