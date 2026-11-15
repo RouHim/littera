@@ -1,3 +1,9 @@
+## [1.4.0](https://github.com/RouHim/littera/compare/v1.3.0...v1.4.0) (2026-11-15)
+
+### Features
+
+* **settings:** show the compute backend and CPU fallback status ([#14](https://github.com/RouHim/littera/issues/14)) ([bffba07](https://github.com/RouHim/littera/commit/bffba07a94b3b13baeb8806d5702d0bced5c66f8))
+
 ## [1.3.0](https://github.com/RouHim/littera/compare/v1.2.0...v1.3.0) (2026-11-14)
 
 ### Features
