@@ -60,7 +60,7 @@ To build from source, see [DEVELOPMENT.md](DEVELOPMENT.md#build-from-source). Ru
 Once setup is complete, Littera asks GitHub once per start whether a newer release exists and shows the answer in the overlay notice. That check is the only automatic network access, apart from the verified update download when Littera owns the binary. Model downloads stay user-initiated. Nothing about the check is stored.
 
 - A binary installed under your home directory replaces itself in place. The published SHA-256 and the new binary's `--version` must match before it is renamed over the running file. It applies on the next start.
-- Littera never writes to a pacman- or dpkg-owned binary. The notice names the route: `yay -Syu` / `paru -Syu` for the AUR package, or `sudo apt install ./littera_<version>_amd64.deb` from the release page.
+- Littera never writes to a pacman- or dpkg-owned binary. The notice names the route: `yay -Syu` / `paru -Syu` for the AUR package, or the release-page `littera_<version>_amd64.deb`; install it with `sudo apt install ./littera_<version>_amd64.deb`.
 - A build run from `target/release` is left alone; rebuild with `cargo build --release`.
 
 ## Troubleshooting and help
@@ -71,7 +71,7 @@ littera --diagnostics
 
 The check covers hotkey access, paste permission, GPU and overlay. Each failure comes with a fix. Littera also opens a problem window at startup when something is wrong.
 
-- Hotkey does nothing: for a source install, install the desktop entry as described under Install and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
+- Hotkey does nothing: for a source install, install the desktop entry as described in [DEVELOPMENT.md](DEVELOPMENT.md#running-a-checkout-build) and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand; the diagnostics name the blocked path.
 - Files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`. Every key and default is in [DEVELOPMENT.md](DEVELOPMENT.md#configuration).
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).
