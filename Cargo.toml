@@ -60,7 +60,7 @@ cosmic-text = "0.19"
 # hyper/tower stack through the runtime.
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
 sha2 = "0.11"
-nix = { version = "0.31", features = ["fs"] }
+nix = { version = "0.32", features = ["fs"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "1.1"
