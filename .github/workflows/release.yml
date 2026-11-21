@@ -131,7 +131,7 @@ jobs:
     # Pinned by digest to the oldest supported userland. The control file derives
     # `libc6 (>= …)` from the binary actually built here, so a newer image
     # would silently raise the .deb's floor.
-    container: ubuntu:24.04@sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec
+    container: ubuntu:24.04@sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a
     # Container jobs run `run:` steps through the image's /bin/sh, which is
     # dash on ubuntu:24.04; dash rejects `set -o pipefail`. bash ships in the
     # image, so pin every step in this job to it.
