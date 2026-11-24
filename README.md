@@ -20,14 +20,12 @@ Arch Linux:
 
 ```sh
 yay -S littera-bin    # or: paru -S littera-bin
-littera
 ```
 
 Debian 13+ and Ubuntu 24.04+ use the `.deb` from the [latest release](https://github.com/RouHim/littera/releases/latest). Every asset has a `.sha256` file:
 
 ```sh
 sudo apt install ./littera_<version>_amd64.deb
-littera
 ```
 
 Any distribution can use the tarball from the [latest release](https://github.com/RouHim/littera/releases/latest):
@@ -36,7 +34,6 @@ Any distribution can use the tarball from the [latest release](https://github.co
 tar xzf littera-<version>-x86_64.tar.gz
 install -Dm755 littera-<version>-x86_64/littera ~/.local/bin/littera
 ./littera-<version>-x86_64/install-desktop.sh
-~/.local/bin/littera
 ```
 
 The installer places the desktop entry and the icon set under `$XDG_DATA_HOME` (default `~/.local/share`), creates missing directories and is safe to re-run. The desktop entry is also what the global-shortcut portal identifies Littera by.
@@ -46,6 +43,12 @@ The first start opens a setup window for the model, language, hotkey and a syste
 To build from source, see [DEVELOPMENT.md](DEVELOPMENT.md#build-from-source). Rust 1.98 or newer is required.
 
 ## Usage
+
+Start Littera once; it keeps running in the tray:
+
+```sh
+littera
+```
 
 - Tap the hotkey (default Ctrl+Super) to start recording, and tap again to stop.
 - Or hold the hotkey while you speak, then release.
