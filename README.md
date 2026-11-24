@@ -35,13 +35,11 @@ Any distribution can use the tarball from the [latest release](https://github.co
 ```sh
 tar xzf littera-<version>-x86_64.tar.gz
 install -Dm755 littera-<version>-x86_64/littera ~/.local/bin/littera
-install -Dm644 littera-<version>-x86_64/littera.desktop ~/.local/share/applications/littera.desktop
-install -d ~/.local/share/icons
-cp -R littera-<version>-x86_64/icons/hicolor ~/.local/share/icons/
+./littera-<version>-x86_64/install-desktop.sh
 ~/.local/bin/littera
 ```
 
-Install the desktop entry: the global-shortcut portal identifies Littera by it.
+The installer places the desktop entry and the icon set under `$XDG_DATA_HOME` (default `~/.local/share`), creates missing directories and is safe to re-run. The desktop entry is also what the global-shortcut portal identifies Littera by.
 
 The first start opens a setup window for the model, language, hotkey and a system check. The default model handles 32 languages, is about 750 MB, and downloads on first use. Smaller English-only models are in the settings.
 
@@ -71,7 +69,7 @@ littera --diagnostics
 
 The check covers hotkey access, paste permission, GPU and overlay. Each failure comes with a fix. Littera also opens a problem window at startup when something is wrong.
 
-- Hotkey does nothing: for a source install, install the desktop entry as described in [DEVELOPMENT.md](DEVELOPMENT.md#running-a-checkout-build) and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
+- Hotkey does nothing: for a source install, run `./install-desktop.sh` as described in [DEVELOPMENT.md](DEVELOPMENT.md#running-a-checkout-build) and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand; the diagnostics name the blocked path.
 - Files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`. Every key and default is in [DEVELOPMENT.md](DEVELOPMENT.md#configuration).
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).
