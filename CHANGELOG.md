@@ -1,3 +1,9 @@
+## [1.4.1](https://github.com/RouHim/littera/compare/v1.4.0...v1.4.1) (2026-11-24)
+
+### Bug Fixes
+
+* **install:** restore the one-command desktop and icon installer ([#19](https://github.com/RouHim/littera/issues/19)) ([5357aa1](https://github.com/RouHim/littera/commit/5357aa1f3435ebd9135615c32921908f1251d02a))
+
 ## [1.4.0](https://github.com/RouHim/littera/compare/v1.3.0...v1.4.0) (2026-11-15)
 
 ### Features
