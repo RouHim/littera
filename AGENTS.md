@@ -157,7 +157,7 @@ CLI surface is exactly `--version`, `--diagnostics`, `--audio-file <16-kHz-mono-
 | `packaging/PKGBUILD` + `littera-bin.install` | AUR packaging template rendered with `pkgver`/`sha256` at release time; `arch=('x86_64')`, prebuilt archive |
 | `packaging/debian/control.in` | Debian control template rendered with version, readelf-derived glibc floor and `Installed-Size` at release time; no maintainer scripts |
 | `scripts/bump-version.sh` | Rewrites the crate version in `Cargo.toml` and the `littera` block in `Cargo.lock`; semantic-release's prepare step |
-| `install-desktop.sh` | One-command user install of the desktop entry and the hicolor icon set (FR-009); works from a checkout or the release tarball |
+| `install-desktop.sh` | One-command user install of the desktop entry and the hicolor icon set (speech-bubble-app-icon.md FR-009); works from a checkout or the release tarball |
 | `LICENSE` | MIT |
 | `README.md` | User-facing overview: install routes, use, configuration keys, updates, troubleshooting |
 | `DEVELOPMENT.md` | Operations reference: build deps, verification, CLI flags, env vars, link/`dlopen` and permission tables, release pipeline |

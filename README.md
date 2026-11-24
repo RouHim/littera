@@ -44,7 +44,7 @@ To build from source, see [DEVELOPMENT.md](DEVELOPMENT.md#build-from-source). Ru
 
 ## Usage
 
-Start Littera once; it keeps running in the tray:
+Start Littera once (tarball install: `~/.local/bin/littera`); it keeps running in the tray:
 
 ```sh
 littera
