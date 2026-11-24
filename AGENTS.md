@@ -20,7 +20,7 @@
   X11-only code path that is not a fallback, or a non-Linux code path.
 - Out of scope by spec: cloud/BYOK models, transcript history, custom dictionaries,
   meeting transcription, accounts, macOS/Windows.
-- Repo state: branch `main`, `origin` = `github.com/RouHim/littera` (**public**), and the repo releases itself: `.github/workflows/{ci,release,pr-title}.yml`, semantic-release (`.releaserc.json`, `package.json`), `renovate.json`, the AUR and Debian packaging in `packaging/` and the version bumper `scripts/bump-version.sh`. Every `feat`/`fix`/`perf` commit that lands on `main` produces the next `vX.Y.Z` tag, the GitHub release assets (tarball, standalone `littera-x86_64` binary and `.deb`) and the AUR push. The shipped desktop entry is `assets/icon/littera.desktop`; it is installed by copy (README), not by a script.
+- Repo state: branch `main`, `origin` = `github.com/RouHim/littera` (**public**), and the repo releases itself: `.github/workflows/{ci,release,pr-title}.yml`, semantic-release (`.releaserc.json`, `package.json`), `renovate.json`, the AUR and Debian packaging in `packaging/` and the version bumper `scripts/bump-version.sh`. Every `feat`/`fix`/`perf` commit that lands on `main` produces the next `vX.Y.Z` tag, the GitHub release assets (tarball, standalone `littera-x86_64` binary and `.deb`) and the AUR push. The shipped desktop entry is `assets/icon/littera.desktop`; `install-desktop.sh` installs it together with the hicolor icon set (README).
 
 ## Architecture & Data Flow
 
@@ -157,6 +157,7 @@ CLI surface is exactly `--version`, `--diagnostics`, `--audio-file <16-kHz-mono-
 | `packaging/PKGBUILD` + `littera-bin.install` | AUR packaging template rendered with `pkgver`/`sha256` at release time; `arch=('x86_64')`, prebuilt archive |
 | `packaging/debian/control.in` | Debian control template rendered with version, readelf-derived glibc floor and `Installed-Size` at release time; no maintainer scripts |
 | `scripts/bump-version.sh` | Rewrites the crate version in `Cargo.toml` and the `littera` block in `Cargo.lock`; semantic-release's prepare step |
+| `install-desktop.sh` | One-command user install of the desktop entry and the hicolor icon set (speech-bubble-app-icon.md FR-009); works from a checkout or the release tarball |
 | `LICENSE` | MIT |
 | `README.md` | User-facing overview: install routes, use, configuration keys, updates, troubleshooting |
 | `DEVELOPMENT.md` | Operations reference: build deps, verification, CLI flags, env vars, link/`dlopen` and permission tables, release pipeline |

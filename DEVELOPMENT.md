@@ -36,14 +36,14 @@ windowing stack, and ALSA `dlopen`s its PCM plugins.
 ### Running a checkout build
 
 `target/release/littera` runs without installation. To give it the app-menu entry and the
-portal hotkey route, install the desktop entry, icons and a copy of the binary. `Exec=littera`
-resolves on `PATH`, which includes `~/.local/bin` in a login shell:
+portal hotkey route, install a copy of the binary and run `install-desktop.sh`. The script
+places the desktop entry and the hicolor icon set under `$XDG_DATA_HOME` (default
+`~/.local/share`), creates missing directories, and is safe to re-run. `Exec=littera` resolves
+on `PATH`, which includes `~/.local/bin` in a login shell:
 
 ```sh
-install -Dm644 assets/icon/littera.desktop ~/.local/share/applications/littera.desktop
-install -d ~/.local/share/icons
-cp -R assets/icon/hicolor ~/.local/share/icons/
 install -Dm755 target/release/littera ~/.local/bin/littera
+./install-desktop.sh
 ```
 
 The copy in `~/.local/bin` is a Littera-owned install, so the self-updater replaces it in

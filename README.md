@@ -20,14 +20,12 @@ Arch Linux:
 
 ```sh
 yay -S littera-bin    # or: paru -S littera-bin
-littera
 ```
 
 Debian 13+ and Ubuntu 24.04+ use the `.deb` from the [latest release](https://github.com/RouHim/littera/releases/latest). Every asset has a `.sha256` file:
 
 ```sh
 sudo apt install ./littera_<version>_amd64.deb
-littera
 ```
 
 Any distribution can use the tarball from the [latest release](https://github.com/RouHim/littera/releases/latest):
@@ -35,19 +33,22 @@ Any distribution can use the tarball from the [latest release](https://github.co
 ```sh
 tar xzf littera-<version>-x86_64.tar.gz
 install -Dm755 littera-<version>-x86_64/littera ~/.local/bin/littera
-install -Dm644 littera-<version>-x86_64/littera.desktop ~/.local/share/applications/littera.desktop
-install -d ~/.local/share/icons
-cp -R littera-<version>-x86_64/icons/hicolor ~/.local/share/icons/
-~/.local/bin/littera
+./littera-<version>-x86_64/install-desktop.sh
 ```
 
-Install the desktop entry: the global-shortcut portal identifies Littera by it.
+The installer places the desktop entry and the icon set under `$XDG_DATA_HOME` (default `~/.local/share`), creates missing directories and is safe to re-run. The desktop entry is also what the global-shortcut portal identifies Littera by.
 
 The first start opens a setup window for the model, language, hotkey and a system check. The default model handles 32 languages, is about 750 MB, and downloads on first use. Smaller English-only models are in the settings.
 
 To build from source, see [DEVELOPMENT.md](DEVELOPMENT.md#build-from-source). Rust 1.98 or newer is required.
 
 ## Usage
+
+Start Littera once (tarball install: `~/.local/bin/littera`); it keeps running in the tray:
+
+```sh
+littera
+```
 
 - Tap the hotkey (default Ctrl+Super) to start recording, and tap again to stop.
 - Or hold the hotkey while you speak, then release.
@@ -71,7 +72,7 @@ littera --diagnostics
 
 The check covers hotkey access, paste permission, GPU and overlay. Each failure comes with a fix. Littera also opens a problem window at startup when something is wrong.
 
-- Hotkey does nothing: for a source install, install the desktop entry as described in [DEVELOPMENT.md](DEVELOPMENT.md#running-a-checkout-build) and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
+- Hotkey does nothing: for a source install, run `./install-desktop.sh` as described in [DEVELOPMENT.md](DEVELOPMENT.md#running-a-checkout-build) and restart. If the diagnostics ask for it, run `sudo usermod -aG input $USER` and log in again.
 - Nothing is pasted: without write access to `/dev/uinput`, Littera copies the transcript instead of typing it. Paste it by hand; the diagnostics name the blocked path.
 - Files: config in `~/.config/littera/config.toml`, models in `~/.local/share/littera/models`. Every key and default is in [DEVELOPMENT.md](DEVELOPMENT.md#configuration).
 - Bugs and questions: [GitHub issues](https://github.com/RouHim/littera/issues).

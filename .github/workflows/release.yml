@@ -92,6 +92,7 @@ jobs:
           install -Dm755 target/release/littera "$dir/littera"
           strip "$dir/littera"
           install -Dm644 assets/icon/littera.desktop "$dir/littera.desktop"
+          install -Dm755 install-desktop.sh "$dir/install-desktop.sh"
           install -d "$dir/icons"
           cp -R assets/icon/hicolor "$dir/icons/hicolor"
           install -Dm644 LICENSE "$dir/LICENSE"
