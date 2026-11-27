@@ -3699,24 +3699,31 @@ dependencies = [
 
 [[package]]
 name = "transcribe-cpp"
-version = "0.4.2"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cf6687b4c73890aea4515632afb1586d48998f22f38e02e3cfbcd7d1543cd4a"
+checksum = "61e75c48306ea56be8bb2361f03d81d6a5f9ad916e7a07ea8d3f64ed12749da0"
 dependencies = [
  "log",
  "thiserror 2.0.21",
  "transcribe-cpp-sys",
+ "transcribe-cpp-types",
 ]
 
 [[package]]
 name = "transcribe-cpp-sys"
-version = "0.4.2"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32f94fb1e9a3033101bbd500d02993cfc95e315f24417038fd42f1fd80e1059a"
+checksum = "323903fad2bcebaf025314ccb5dc3e178ba8e61622fc935fe17096d5ab93244b"
 dependencies = [
  "cmake",
  "serde_json",
 ]
+
+[[package]]
+name = "transcribe-cpp-types"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "876ac0d2b1f250507a2e9f46b1a8ec50dcad8371be83977d6e23e6a5824a9ef8"
 
 [[package]]
 name = "transpose"
